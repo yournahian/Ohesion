@@ -97,7 +97,12 @@ export default {
         .setCustomId('admin_draw_raffle')
         .setLabel('Draw Winner')
         .setEmoji('🎲')
-        .setStyle(ButtonStyle.Secondary)
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('admin_create_quiz')
+        .setLabel('Create Quiz')
+        .setEmoji('🧠')
+        .setStyle(ButtonStyle.Success)
     );
 
     const row2 = new ActionRowBuilder().addComponents(

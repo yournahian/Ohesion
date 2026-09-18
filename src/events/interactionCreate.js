@@ -16,6 +16,14 @@ import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadat
 import { buildHubPayload } from '../utils/hubView.js';
 import { buildAuctionPayload, executeBid } from '../utils/auctionManager.js';
 import { getLevelFromXp } from '../utils/levelCalculator.js';
+import {
+  buildQuizPayload,
+  saveQuiz,
+  getQuiz,
+  hasUserSubmitted,
+  recordSubmission,
+  getQuizParticipantCount,
+} from '../utils/quizManager.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -177,6 +185,58 @@ export default {
         modal.addComponents(
           new ActionRowBuilder().addComponents(prizeInput),
           new ActionRowBuilder().addComponents(costInput),
+          new ActionRowBuilder().addComponents(durationInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN CREATE QUIZ MODAL ---
+      if (customId === 'admin_create_quiz') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_create_quiz')
+          .setTitle('🧠 Create Community Quiz / Trivia');
+
+        const questionInput = new TextInputBuilder()
+          .setCustomId('input_quiz_question')
+          .setLabel('Quiz Question')
+          .setPlaceholder('e.g. What blockchain does Questify primarily deploy on?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const choicesInput = new TextInputBuilder()
+          .setCustomId('input_quiz_choices')
+          .setLabel('Choices (2 to 4, one per line)')
+          .setPlaceholder('Base\nEthereum\nSolana\nPolygon')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const answerInput = new TextInputBuilder()
+          .setCustomId('input_quiz_answer')
+          .setLabel('Correct Choice Number (1, 2, 3, or 4)')
+          .setPlaceholder('1')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const rewardsInput = new TextInputBuilder()
+          .setCustomId('input_quiz_rewards')
+          .setLabel('Rewards: Points, XP (e.g. 50, 25)')
+          .setValue('50, 25')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const durationInput = new TextInputBuilder()
+          .setCustomId('input_quiz_duration')
+          .setLabel('Duration (e.g. 30m, 2h, 24h, 3d)')
+          .setValue('24h')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(questionInput),
+          new ActionRowBuilder().addComponents(choicesInput),
+          new ActionRowBuilder().addComponents(answerInput),
+          new ActionRowBuilder().addComponents(rewardsInput),
           new ActionRowBuilder().addComponents(durationInput)
         );
 
@@ -943,6 +1003,134 @@ export default {
           return interaction.editReply({ content: '❌ An error occurred during verification.' });
         }
       }
+
+      // --- L. COMMUNITY QUIZ ANSWER SUBMISSION ---
+      if (customId.startsWith('quiz_ans_')) {
+        const rest = customId.replace('quiz_ans_', '');
+        const lastUnderscore = rest.lastIndexOf('_');
+        const quizId = rest.substring(0, lastUnderscore);
+        const choiceIndex = parseInt(rest.substring(lastUnderscore + 1), 10);
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const quiz = await getQuiz(quizId);
+        if (!quiz) {
+          return interaction.editReply({
+            content: '❌ **Quiz not found or expired.**',
+          });
+        }
+
+        if (new Date(quiz.expires_at).getTime() < Date.now()) {
+          return interaction.editReply({
+            content: '⏳ **This quiz has already expired!** Watch for future trivia drops.',
+          });
+        }
+
+        const alreadySubmitted = await hasUserSubmitted(quizId, discordId);
+        if (alreadySubmitted) {
+          return interaction.editReply({
+            content: '⚠️ **You have already submitted an answer for this quiz!** Only 1 attempt per member is permitted.',
+          });
+        }
+
+        const isCorrect = choiceIndex === Number(quiz.correct_index);
+        const pointsAwarded = isCorrect ? Number(quiz.reward_points || 0) : 0;
+        const xpAwarded = isCorrect ? Number(quiz.reward_xp || 0) : 0;
+
+        await recordSubmission({
+          quizId,
+          guildId,
+          discordId,
+          selectedIndex: choiceIndex,
+          isCorrect,
+          pointsAwarded,
+        });
+
+        // Refresh participant counter on original message
+        const count = getQuizParticipantCount(quizId);
+        const updatedPayload = buildQuizPayload(quiz, count);
+        await interaction.message.edit(updatedPayload).catch(() => null);
+
+        if (isCorrect) {
+          // Credit points and XP
+          const { data: userRecord } = await supabase
+            .from('users')
+            .select('total_points, xp, level')
+            .eq('guild_id', guildId)
+            .eq('discord_id', discordId)
+            .maybeSingle();
+
+          const currentPoints = Number(userRecord?.total_points || 0);
+          const currentXp = Number(userRecord?.xp || 0);
+          const newPoints = currentPoints + pointsAwarded;
+          const newXp = currentXp + xpAwarded;
+          const newLevel = getLevelFromXp(newXp);
+
+          await supabase.from('users').upsert(
+            {
+              guild_id: guildId,
+              discord_id: discordId,
+              total_points: newPoints,
+              xp: newXp,
+              level: newLevel,
+            },
+            { onConflict: 'guild_id,discord_id' }
+          );
+
+          // Check level-up role reward
+          try {
+            const guild =
+              interaction.guild ||
+              (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+            if (guild) {
+              const member = await guild.members.fetch(discordId).catch(() => null);
+              if (member) {
+                const { data: roleRewards } = await supabase
+                  .from('level_role_rewards')
+                  .select('required_level, role_id')
+                  .eq('guild_id', guildId)
+                  .lte('required_level', newLevel);
+
+                if (roleRewards && roleRewards.length > 0) {
+                  for (const rw of roleRewards) {
+                    if (!member.roles.cache.has(rw.role_id)) {
+                      await member.roles.add(rw.role_id).catch(() => null);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[QUIZ ROLE CHECK ERROR]:', e);
+          }
+
+          const winEmbed = new EmbedBuilder()
+            .setColor(0x06d6a0)
+            .setTitle('🎉 Correct Answer!')
+            .setDescription(
+              `🎯 **Awesome job!** You chose the right answer:\n` +
+              `**${quiz.options[choiceIndex]}**\n\n` +
+              `🪙 **Rewards Earned:**\n` +
+              `• **+${pointsAwarded} Quest Points**\n` +
+              `• **+${xpAwarded} XP**\n\n` +
+              `💰 **Updated Balance:** ${newPoints.toLocaleString()} QP (Level ${newLevel})`
+            )
+            .setFooter({ text: 'Questify Gamification Engine' });
+
+          return interaction.editReply({ embeds: [winEmbed] });
+        } else {
+          const lossEmbed = new EmbedBuilder()
+            .setColor(0xef476f)
+            .setTitle('❌ Incorrect Answer')
+            .setDescription(
+              `You selected: **${quiz.options[choiceIndex]}**\n\n` +
+              `Better luck next time! Stay tuned to the community channels for the next trivia drop.`
+            )
+            .setFooter({ text: 'Questify Trivia System' });
+
+          return interaction.editReply({ embeds: [lossEmbed] });
+        }
+      }
     }
 
     // ==========================================
@@ -961,6 +1149,7 @@ export default {
         'modal_add_shop',
         'modal_vc_snapshot',
         'modal_reward_member',
+        'modal_create_quiz',
       ];
       if (adminModals.includes(modalId)) {
         if (!isAuthorizedAdmin(interaction)) {
@@ -1537,6 +1726,79 @@ export default {
         });
 
         return interaction.editReply({ content: result.message });
+      }
+
+      // --- MODAL: CREATE COMMUNITY QUIZ ---
+      if (modalId === 'modal_create_quiz') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const question = interaction.fields.getTextInputValue('input_quiz_question').trim();
+        const rawChoices = interaction.fields.getTextInputValue('input_quiz_choices').trim();
+        const answerStr = interaction.fields.getTextInputValue('input_quiz_answer').trim();
+        const rewardsStr = interaction.fields.getTextInputValue('input_quiz_rewards').trim();
+        const durationStr = interaction.fields.getTextInputValue('input_quiz_duration').trim();
+
+        // Parse choices (split by newline or comma)
+        const choices = (rawChoices.includes('\n') ? rawChoices.split('\n') : rawChoices.split(','))
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0);
+
+        if (choices.length < 2 || choices.length > 4) {
+          return interaction.editReply({
+            content: '❌ **Invalid Choices:** Please provide between 2 and 4 answer choices (one per line).',
+          });
+        }
+
+        // Parse answer index (1-based to 0-based)
+        const ansNum = parseInt(answerStr, 10);
+        if (isNaN(ansNum) || ansNum < 1 || ansNum > choices.length) {
+          return interaction.editReply({
+            content: `❌ **Invalid Correct Option:** Please enter a number between 1 and ${choices.length}.`,
+          });
+        }
+        const correctIndex = ansNum - 1;
+
+        // Parse rewards
+        const [ptsStr, xpStr] = rewardsStr.split(',').map((s) => s?.trim());
+        const rewardPoints = parseInt(ptsStr, 10) || 50;
+        const rewardXp = parseInt(xpStr, 10) || 25;
+
+        // Parse duration
+        const durationMs = parseDuration(durationStr) || 24 * 60 * 60 * 1000;
+        const expiresAt = new Date(Date.now() + durationMs).toISOString();
+
+        const quizId = 'qz_' + Date.now().toString(36);
+
+        const quizData = {
+          quiz_id: quizId,
+          guild_id: guildId,
+          channel_id: interaction.channelId,
+          message_id: null,
+          question,
+          options: choices,
+          correct_index: correctIndex,
+          reward_points: rewardPoints,
+          reward_xp: rewardXp,
+          expires_at: expiresAt,
+          is_active: true,
+          created_by: discordId,
+        };
+
+        const payload = buildQuizPayload(quizData, 0);
+        const sentMessage = await interaction.channel.send(payload);
+
+        quizData.message_id = sentMessage.id;
+        await saveQuiz(quizData);
+
+        return interaction.editReply({
+          content:
+            `✅ **Community Quiz Broadcasted Successfully!**\n\n` +
+            `• **Question:** ${question}\n` +
+            `• **Choices:** ${choices.length} options\n` +
+            `• **Reward:** +${rewardPoints} QP & +${rewardXp} XP\n` +
+            `• **Expires:** <t:${Math.floor(new Date(expiresAt).getTime() / 1000)}:R>\n\n` +
+            `Members can now answer directly using the interactive buttons!`,
+        });
       }
     }
 
