@@ -24,6 +24,15 @@ import {
   recordSubmission,
   getQuizParticipantCount,
 } from '../utils/quizManager.js';
+import {
+  createLiveSession,
+  getLiveSession,
+  addQuestionToSession,
+  addBulkQuestionsToSession,
+  buildSetupDeck,
+  submitLiveAnswer,
+  startLiveQuiz,
+} from '../utils/liveQuizEngine.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -241,6 +250,163 @@ export default {
         );
 
         return interaction.showModal(modal);
+      }
+
+      // --- ADMIN CREATE LIVE QUIZ SHOW MODAL ---
+      if (customId === 'admin_create_live_quiz') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_setup_live_quiz')
+          .setTitle('⚡ Setup Live Quiz Tournament');
+
+        const titleInput = new TextInputBuilder()
+          .setCustomId('input_lqz_title')
+          .setLabel('Tournament Title')
+          .setValue('Questify Live Trivia Show')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const qTimeInput = new TextInputBuilder()
+          .setCustomId('input_lqz_qtime')
+          .setLabel('Time Per Question (Seconds)')
+          .setValue('20')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const bTimeInput = new TextInputBuilder()
+          .setCustomId('input_lqz_btime')
+          .setLabel('Break Time Between Questions (Seconds)')
+          .setValue('8')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const basePtsInput = new TextInputBuilder()
+          .setCustomId('input_lqz_base_pts')
+          .setLabel('Base Points (Speed-Scaled QP)')
+          .setValue('100')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const xpBonusInput = new TextInputBuilder()
+          .setCustomId('input_lqz_xp_bonus')
+          .setLabel('Top 10 Final XP Bonus Pool')
+          .setValue('500')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(titleInput),
+          new ActionRowBuilder().addComponents(qTimeInput),
+          new ActionRowBuilder().addComponents(bTimeInput),
+          new ActionRowBuilder().addComponents(basePtsInput),
+          new ActionRowBuilder().addComponents(xpBonusInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN LIVE QUIZ SETUP DECK BUTTONS ---
+      if (customId.startsWith('lqz_btn_addq_')) {
+        const sessionId = customId.replace('lqz_btn_addq_', '');
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_lqz_addq_${sessionId}`)
+          .setTitle('➕ Add Question to Quiz Show');
+
+        const questionInput = new TextInputBuilder()
+          .setCustomId('input_q_text')
+          .setLabel('Question')
+          .setPlaceholder('e.g. Which consensus mechanism does Bitcoin use?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const choicesInput = new TextInputBuilder()
+          .setCustomId('input_q_choices')
+          .setLabel('Options (2 to 4, one per line)')
+          .setPlaceholder('Proof of Work\nProof of Stake\nProof of History\nProof of Authority')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const correctInput = new TextInputBuilder()
+          .setCustomId('input_q_correct')
+          .setLabel('Correct Option Number (1, 2, 3, or 4)')
+          .setPlaceholder('1')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(questionInput),
+          new ActionRowBuilder().addComponents(choicesInput),
+          new ActionRowBuilder().addComponents(correctInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      if (customId.startsWith('lqz_btn_bulkq_')) {
+        const sessionId = customId.replace('lqz_btn_bulkq_', '');
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_lqz_bulkq_${sessionId}`)
+          .setTitle('📝 Paste Multiple Questions');
+
+        const bulkInput = new TextInputBuilder()
+          .setCustomId('input_bulk_text')
+          .setLabel('Format: Question ? Opt1,Opt2,Opt3 ? 1')
+          .setPlaceholder(
+            'What is ETH? ? Currency, Stock, NFT, Bond ? 1\nWhat year was BTC born? ? 2005, 2008, 2009, 2012 ? 3'
+          )
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(bulkInput));
+        return interaction.showModal(modal);
+      }
+
+      if (customId.startsWith('lqz_btn_viewq_')) {
+        const sessionId = customId.replace('lqz_btn_viewq_', '');
+        const session = getLiveSession(sessionId);
+        if (!session || session.questions.length === 0) {
+          return interaction.reply({
+            content: '⚠️ No questions added yet! Click **Add Question** or **Quick Paste Bulk** to get started.',
+            ephemeral: true,
+          });
+        }
+
+        const list = session.questions
+          .map((q, idx) => {
+            const opts = q.options.map((o, i) => `${i === q.correctIndex ? '✅' : '🔹'} ${o}`).join(' | ');
+            return `**Q${idx + 1}:** ${q.question}\n${opts}`;
+          })
+          .join('\n\n');
+
+        return interaction.reply({
+          content: `📋 **Questions Loaded for [${session.title}]:**\n\n${list}`,
+          ephemeral: true,
+        });
+      }
+
+      if (customId.startsWith('lqz_btn_start_')) {
+        const sessionId = customId.replace('lqz_btn_start_', '');
+        const session = getLiveSession(sessionId);
+        if (!session) {
+          return interaction.reply({ content: '❌ Session expired or not found.', ephemeral: true });
+        }
+        if (session.questions.length === 0) {
+          return interaction.reply({
+            content: '⚠️ Please add at least 1 question before launching the quiz show!',
+            ephemeral: true,
+          });
+        }
+        if (session.status !== 'setup') {
+          return interaction.reply({ content: '⚠️ Quiz has already been started!', ephemeral: true });
+        }
+
+        await interaction.reply({
+          content: `🚀 **Live Quiz Show Launched!** Questions will begin broadcasting to this channel in 10 seconds.`,
+          ephemeral: true,
+        });
+
+        // Launch game loop in background
+        startLiveQuiz(sessionId, interaction.channel, interaction.client);
+        return;
       }
 
       if (customId === 'hub_connect_twitter') {
@@ -1131,6 +1297,50 @@ export default {
           return interaction.editReply({ embeds: [lossEmbed] });
         }
       }
+
+      // --- M. LIVE TOURNAMENT ANSWER SUBMISSION ---
+      if (customId.startsWith('quiz_live_ans_')) {
+        const rest = customId.replace('quiz_live_ans_', '');
+        const lastUnder = rest.lastIndexOf('_');
+        const choiceIndex = parseInt(rest.substring(lastUnder + 1), 10);
+        const middle = rest.substring(0, lastUnder);
+        const secondLastUnder = middle.lastIndexOf('_');
+        const qIndex = parseInt(middle.substring(secondLastUnder + 1), 10);
+        const sessionId = middle.substring(0, secondLastUnder);
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = submitLiveAnswer(sessionId, qIndex, discordId, choiceIndex);
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        if (result.isCorrect) {
+          const winEmbed = new EmbedBuilder()
+            .setColor(0x06d6a0)
+            .setTitle('🎯 Fast & Correct!')
+            .setDescription(
+              `You selected: **${result.chosenOption}**\n\n` +
+              `⚡ **Speed:** Answered in **${result.elapsedSec}s**!\n` +
+              `🪙 **Points Awarded:** **+${result.pointsAwarded} QP** (Speed-Bonus Applied)\n` +
+              `🏆 **Total Tournament Score:** **${result.totalScore.toLocaleString()} QP**`
+            )
+            .setFooter({ text: 'Questify Live Tournament' });
+
+          return interaction.editReply({ embeds: [winEmbed] });
+        } else {
+          const lossEmbed = new EmbedBuilder()
+            .setColor(0xef476f)
+            .setTitle('❌ Incorrect Answer')
+            .setDescription(
+              `You selected: **${result.chosenOption}**\n\n` +
+              `0 points awarded for this round. Keep your eyes on the channel for the next question!`
+            )
+            .setFooter({ text: 'Questify Live Tournament' });
+
+          return interaction.editReply({ embeds: [lossEmbed] });
+        }
+      }
     }
 
     // ==========================================
@@ -1150,8 +1360,13 @@ export default {
         'modal_vc_snapshot',
         'modal_reward_member',
         'modal_create_quiz',
+        'modal_setup_live_quiz',
       ];
-      if (adminModals.includes(modalId)) {
+      if (
+        adminModals.includes(modalId) ||
+        modalId.startsWith('modal_lqz_addq_') ||
+        modalId.startsWith('modal_lqz_bulkq_')
+      ) {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
             content: '⛔ **Access Denied**: You need `Manage Server` or `Administrator` permissions to submit this form.',
@@ -1799,6 +2014,103 @@ export default {
             `• **Expires:** <t:${Math.floor(new Date(expiresAt).getTime() / 1000)}:R>\n\n` +
             `Members can now answer directly using the interactive buttons!`,
         });
+      }
+
+      // --- MODAL: SETUP LIVE QUIZ TOURNAMENT ---
+      if (modalId === 'modal_setup_live_quiz') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const title = interaction.fields.getTextInputValue('input_lqz_title').trim();
+        const qTimeStr = interaction.fields.getTextInputValue('input_lqz_qtime').trim();
+        const bTimeStr = interaction.fields.getTextInputValue('input_lqz_btime').trim();
+        const basePtsStr = interaction.fields.getTextInputValue('input_lqz_base_pts').trim();
+        const xpBonusStr = interaction.fields.getTextInputValue('input_lqz_xp_bonus').trim();
+
+        const qTime = parseInt(qTimeStr, 10) || 20;
+        const bTime = parseInt(bTimeStr, 10) || 8;
+        const basePts = parseInt(basePtsStr, 10) || 100;
+        const xpBonus = parseInt(xpBonusStr, 10) || 500;
+
+        const session = createLiveSession({
+          guildId,
+          channelId: interaction.channelId,
+          title,
+          questionTimeSec: qTime,
+          breakTimeSec: bTime,
+          basePoints: basePts,
+          xpBonus,
+          createdBy: discordId,
+        });
+
+        const deckPayload = buildSetupDeck(session);
+        return interaction.editReply(deckPayload);
+      }
+
+      // --- MODAL: ADD SINGLE QUESTION TO LIVE QUIZ ---
+      if (modalId.startsWith('modal_lqz_addq_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const sessionId = modalId.replace('modal_lqz_addq_', '');
+        const session = getLiveSession(sessionId);
+
+        if (!session) {
+          return interaction.editReply({ content: '❌ Session expired or not found.' });
+        }
+
+        const qText = interaction.fields.getTextInputValue('input_q_text').trim();
+        const choicesRaw = interaction.fields.getTextInputValue('input_q_choices').trim();
+        const correctStr = interaction.fields.getTextInputValue('input_q_correct').trim();
+
+        const choices = choicesRaw
+          .split('\n')
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0);
+
+        if (choices.length < 2 || choices.length > 4) {
+          return interaction.editReply({
+            content: '❌ **Invalid Choices:** Please provide between 2 and 4 options (one per line).',
+          });
+        }
+
+        const correctNum = parseInt(correctStr, 10);
+        if (isNaN(correctNum) || correctNum < 1 || correctNum > choices.length) {
+          return interaction.editReply({
+            content: `❌ **Invalid Correct Option:** Please enter a number between 1 and ${choices.length}.`,
+          });
+        }
+
+        addQuestionToSession(sessionId, {
+          question: qText,
+          options: choices,
+          correctIndex: correctNum - 1,
+        });
+
+        const deckPayload = buildSetupDeck(session);
+        return interaction.editReply(deckPayload);
+      }
+
+      // --- MODAL: QUICK PASTE BULK QUESTIONS ---
+      if (modalId.startsWith('modal_lqz_bulkq_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const sessionId = modalId.replace('modal_lqz_bulkq_', '');
+        const session = getLiveSession(sessionId);
+
+        if (!session) {
+          return interaction.editReply({ content: '❌ Session expired or not found.' });
+        }
+
+        const bulkText = interaction.fields.getTextInputValue('input_bulk_text').trim();
+        const res = addBulkQuestionsToSession(sessionId, bulkText);
+
+        if (res.added === 0) {
+          return interaction.editReply({
+            content:
+              '⚠️ **No questions could be parsed.**\n' +
+              'Ensure each line follows: `Question text ? Option 1, Option 2, Option 3 ? CorrectNumber`',
+          });
+        }
+
+        const deckPayload = buildSetupDeck(session);
+        return interaction.editReply(deckPayload);
       }
     }
 

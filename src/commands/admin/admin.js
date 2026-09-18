@@ -107,6 +107,11 @@ export default {
 
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
+        .setCustomId('admin_create_live_quiz')
+        .setLabel('Live Quiz Show')
+        .setEmoji('⚡')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
         .setCustomId('admin_add_shop')
         .setLabel('Add Shop Item')
         .setEmoji('🛒')
