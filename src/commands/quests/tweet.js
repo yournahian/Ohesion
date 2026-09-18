@@ -16,6 +16,9 @@ const tweetCommand = {
     .addIntegerOption(option =>
       option.setName('expire_hours').setDescription('Hours until engagement quest expires (default: 24)').setRequired(false).setMinValue(1).setMaxValue(168)
     )
+    .addStringOption(option =>
+      option.setName('buttons').setDescription('Buttons to include (e.g. "like, rt, comment" or "like, rt" or "like")').setRequired(false)
+    )
     .addChannelOption(option =>
       option.setName('channel').setDescription('Channel to broadcast the tweet quest').setRequired(false)
     )

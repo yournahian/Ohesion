@@ -12,7 +12,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
-import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed } from '../utils/twitter.js';
+import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadata } from '../utils/twitter.js';
 import { buildHubPayload } from '../utils/hubView.js';
 import { buildAuctionPayload, executeBid } from '../utils/auctionManager.js';
 import { getLevelFromXp } from '../utils/levelCalculator.js';
@@ -120,6 +120,14 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
+        const buttonsInput = new TextInputBuilder()
+          .setCustomId('input_buttons')
+          .setLabel('Buttons to Include (Like, RT, Comment)')
+          .setValue('Like, RT, Comment')
+          .setPlaceholder('e.g. Like, RT or only Like or all')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
         const textInput = new TextInputBuilder()
           .setCustomId('input_custom_text')
           .setLabel('Custom Tweet Snippet (Optional)')
@@ -131,6 +139,7 @@ export default {
           new ActionRowBuilder().addComponents(urlInput),
           new ActionRowBuilder().addComponents(pointsInput),
           new ActionRowBuilder().addComponents(hoursInput),
+          new ActionRowBuilder().addComponents(buttonsInput),
           new ActionRowBuilder().addComponents(textInput)
         );
 
@@ -964,7 +973,11 @@ export default {
         const rawUrl = interaction.fields.getTextInputValue('input_tweet_url');
         const pointsStr = interaction.fields.getTextInputValue('input_points');
         const hoursStr = interaction.fields.getTextInputValue('input_expire_hours');
-        const customText = interaction.fields.getTextInputValue('input_custom_text');
+        let buttonsStr = '';
+        try {
+          buttonsStr = interaction.fields.getTextInputValue('input_buttons') || '';
+        } catch (_) {}
+        const customText = interaction.fields.getTextInputValue('input_custom_text') || '';
 
         const parsed = parseTweetUrl(rawUrl);
         if (!parsed) {
@@ -977,9 +990,10 @@ export default {
         const points = parseInt(pointsStr, 10) || 25;
         const expireHours = parseInt(hoursStr, 10) || 24;
 
-        const oembedData = await fetchTweetOEmbed(cleanUrl);
-        const authorDisplayName = oembedData?.authorName || `@${username}`;
-        const tweetBody = customText || oembedData?.text || 'Engage with this post on X to earn points!';
+        // Fetch tweet metadata with media image/thumbnail and author avatar
+        const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
+        const authorDisplayName = tweetMeta?.authorName || `@${username}`;
+        const tweetBody = customText || tweetMeta?.text || 'Engage with this post on X to earn points!';
 
         const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
         const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
@@ -993,7 +1007,7 @@ export default {
           .setColor(0x1da1f2)
           .setAuthor({
             name: `${authorDisplayName} (@${username})`,
-            iconURL: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+            iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
             url: cleanUrl,
           })
           .setTitle(`@${username} tweeted !`)
@@ -1005,22 +1019,61 @@ export default {
           })
           .setTimestamp();
 
-        const actionRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`verify_like_${tweetId}`)
-            .setLabel('Like')
-            .setEmoji('❤️')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`verify_rt_${tweetId}`)
-            .setLabel('Retweet')
-            .setEmoji('🔁')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`verify_comment_${tweetId}`)
-            .setLabel('Comment')
-            .setEmoji('💬')
-            .setStyle(ButtonStyle.Secondary),
+        // Attach tweet image / thumbnail if present
+        if (tweetMeta?.mediaUrl) {
+          tweetEmbed.setImage(tweetMeta.mediaUrl);
+        } else if (tweetMeta?.authorAvatar) {
+          tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+        }
+
+        // Determine which action buttons to include based on admin preference
+        const btnFilter = (buttonsStr || 'all').toLowerCase();
+        const isAll =
+          btnFilter === 'all' ||
+          (!btnFilter.includes('like') &&
+            !btnFilter.includes('rt') &&
+            !btnFilter.includes('retweet') &&
+            !btnFilter.includes('repost') &&
+            !btnFilter.includes('comment'));
+
+        const includeLike = isAll || btnFilter.includes('like');
+        const includeRt =
+          isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost');
+        const includeComment = isAll || btnFilter.includes('comment') || btnFilter.includes('reply');
+
+        const actionRow = new ActionRowBuilder();
+
+        if (includeLike) {
+          actionRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`verify_like_${tweetId}`)
+              .setLabel('Like')
+              .setEmoji('❤️')
+              .setStyle(ButtonStyle.Secondary)
+          );
+        }
+
+        if (includeRt) {
+          actionRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`verify_rt_${tweetId}`)
+              .setLabel('Retweet')
+              .setEmoji('🔁')
+              .setStyle(ButtonStyle.Secondary)
+          );
+        }
+
+        if (includeComment) {
+          actionRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`verify_comment_${tweetId}`)
+              .setLabel('Comment')
+              .setEmoji('💬')
+              .setStyle(ButtonStyle.Secondary)
+          );
+        }
+
+        actionRow.addComponents(
           new ButtonBuilder()
             .setLabel('View on X')
             .setStyle(ButtonStyle.Link)

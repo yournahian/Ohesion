@@ -8,7 +8,7 @@ import {
   ChannelType,
 } from 'discord.js';
 import { supabase } from '../../lib/supabase.js';
-import { parseTweetUrl, fetchTweetOEmbed } from '../../utils/twitter.js';
+import { parseTweetUrl, fetchTweetMetadata } from '../../utils/twitter.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -34,6 +34,12 @@ export default {
         .setRequired(false)
         .setMinValue(1)
         .setMaxValue(168) // up to 7 days
+    )
+    .addStringOption(option =>
+      option
+        .setName('buttons')
+        .setDescription('Buttons to include: e.g. "like, rt, comment", or "like, rt", or "like"')
+        .setRequired(false)
     )
     .addChannelOption(option =>
       option
@@ -80,22 +86,23 @@ export default {
     const { username, tweetId, cleanUrl } = parsed;
     const points = interaction.options.getInteger('points') || 25;
     const expireHours = interaction.options.getInteger('expire_hours') || 24;
+    const buttonsOption = interaction.options.getString('buttons') || 'all';
     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
     const roleMention = interaction.options.getRole('role_mention');
     const customText = interaction.options.getString('custom_text');
 
     await interaction.deferReply({ ephemeral: true });
 
-    // Try fetching metadata via oEmbed
-    const oembedData = await fetchTweetOEmbed(cleanUrl);
-    const authorDisplayName = oembedData?.authorName || `@${username}`;
-    const tweetBody = customText || oembedData?.text || 'Engage with this post on X to earn points!';
+    // Fetch tweet metadata with media thumbnail & author avatar
+    const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
+    const authorDisplayName = tweetMeta?.authorName || `@${username}`;
+    const tweetBody = customText || tweetMeta?.text || 'Engage with this post on X to earn points!';
 
     // Calculate expiration timestamp
     const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
     const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-    // 1. Construct Message Header (matching Engage.io layout)
+    // 1. Construct Message Header
     let messageHeader = `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
       `**Engage to collect your points**\n` +
       `Expires <t:${expireTimestampSec}:R>`;
@@ -109,35 +116,72 @@ export default {
       .setColor(0x1da1f2) // Twitter Sky Blue
       .setAuthor({
         name: `${authorDisplayName} (@${username})`,
-        iconURL: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+        iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
         url: cleanUrl,
       })
       .setTitle(`@${username} tweeted !`)
       .setURL(cleanUrl)
       .setDescription(tweetBody)
       .setFooter({
-        text: 'Powered by Engage.io Gamification',
+        text: 'Powered by Questify Gamification',
         iconURL: interaction.client.user.displayAvatarURL(),
       })
       .setTimestamp();
 
-    // 3. Construct Interactive Action Row with Buttons
-    const actionRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`verify_like_${tweetId}`)
-        .setLabel('Like')
-        .setEmoji('❤️')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`verify_rt_${tweetId}`)
-        .setLabel('Retweet')
-        .setEmoji('🔁')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`verify_comment_${tweetId}`)
-        .setLabel('Comment')
-        .setEmoji('💬')
-        .setStyle(ButtonStyle.Secondary),
+    if (tweetMeta?.mediaUrl) {
+      tweetEmbed.setImage(tweetMeta.mediaUrl);
+    } else if (tweetMeta?.authorAvatar) {
+      tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+    }
+
+    // 3. Construct Interactive Action Row with Filtered Buttons
+    const btnFilter = buttonsOption.toLowerCase();
+    const isAll =
+      btnFilter === 'all' ||
+      (!btnFilter.includes('like') &&
+        !btnFilter.includes('rt') &&
+        !btnFilter.includes('retweet') &&
+        !btnFilter.includes('repost') &&
+        !btnFilter.includes('comment'));
+
+    const includeLike = isAll || btnFilter.includes('like');
+    const includeRt =
+      isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost');
+    const includeComment = isAll || btnFilter.includes('comment') || btnFilter.includes('reply');
+
+    const actionRow = new ActionRowBuilder();
+
+    if (includeLike) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`verify_like_${tweetId}`)
+          .setLabel('Like')
+          .setEmoji('❤️')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    if (includeRt) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`verify_rt_${tweetId}`)
+          .setLabel('Retweet')
+          .setEmoji('🔁')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    if (includeComment) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`verify_comment_${tweetId}`)
+          .setLabel('Comment')
+          .setEmoji('💬')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    actionRow.addComponents(
       new ButtonBuilder()
         .setLabel('View on X')
         .setStyle(ButtonStyle.Link)

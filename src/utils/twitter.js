@@ -18,6 +18,52 @@ export function parseTweetUrl(url) {
 }
 
 /**
+ * Fetches comprehensive tweet metadata including high-resolution images/thumbnails,
+ * author avatar, author display name, and full tweet text.
+ * Uses the free public fxtwitter API with fallback to Twitter oEmbed.
+ */
+export async function fetchTweetMetadata(url, username, tweetId) {
+  try {
+    const fxUrl = `https://api.fxtwitter.com/${username || 'i'}/status/${tweetId}`;
+    const res = await fetch(fxUrl, {
+      headers: { 'User-Agent': 'QuestifyBot/1.0' },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.tweet) {
+        const t = data.tweet;
+        const photo =
+          t.media?.photos?.[0]?.url ||
+          t.media?.all?.[0]?.url ||
+          (t.media?.videos?.[0]?.thumbnail_url) ||
+          null;
+
+        return {
+          authorName: t.author?.name || `@${t.author?.screen_name || username}`,
+          authorUsername: t.author?.screen_name || username,
+          authorAvatar: t.author?.avatar_url || null,
+          text: t.text || '',
+          mediaUrl: photo,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[FXTWITTER] Could not fetch from fxtwitter, falling back to oEmbed:', err.message);
+  }
+
+  // Fallback to Twitter oEmbed
+  const oembed = await fetchTweetOEmbed(url);
+  return {
+    authorName: oembed?.authorName || `@${username}`,
+    authorUsername: username,
+    authorAvatar: null,
+    text: oembed?.text || '',
+    mediaUrl: null,
+  };
+}
+
+/**
  * Fetches basic tweet metadata using Twitter's public oEmbed endpoint.
  * This does not require an API key and extracts author name and tweet HTML snippet.
  */
