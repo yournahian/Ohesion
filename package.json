@@ -1,0 +1,16 @@
+{
+  "name": "questify",
+  "version": "1.0.0",
+  "description": "Questify - Community Engagement & Gamification Bot",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7"
+  }
+}

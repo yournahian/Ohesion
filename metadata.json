@@ -1,0 +1,6 @@
+{
+  "name": "EngageBot - Discord Engagement Bot Architect",
+  "description": "Modular Discord.js v14 engagement bot architecture, Supabase PostgreSQL schema, and interactive gamification simulator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
