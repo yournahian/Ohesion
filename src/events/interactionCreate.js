@@ -66,11 +66,13 @@ export default {
           ephemeral: true,
         };
 
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(replyOptions);
-        } else {
-          await interaction.reply(replyOptions);
-        }
+        try {
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(replyOptions).catch(() => null);
+          } else {
+            await interaction.reply(replyOptions).catch(() => null);
+          }
+        } catch (_) {}
       }
       return;
     }

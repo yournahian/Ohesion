@@ -53,6 +53,15 @@ async function main() {
   await client.login(config.discordToken);
 }
 
+// Global process safety handlers to prevent crashes from network blips
+process.on('unhandledRejection', (error) => {
+  console.error('[UNHANDLED REJECTION]:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[UNCAUGHT EXCEPTION]:', error);
+});
+
 main().catch((err) => {
   console.error('Fatal error during startup:', err);
 });
