@@ -1,3 +1,4 @@
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
@@ -7,6 +8,17 @@ import { loadEvents } from './handlers/eventHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Lightweight HTTP server for Render / hosting platform health checks
+const PORT = process.env.PORT || 3000;
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Questify Bot is active and healthy!\n');
+  })
+  .listen(PORT, () => {
+    console.log(`[HEALTH] Health check server listening on port ${PORT}`);
+  });
 
 // Initialize Discord Client with required Intents
 const client = new Client({
