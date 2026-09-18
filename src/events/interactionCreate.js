@@ -122,9 +122,9 @@ export default {
 
         const buttonsInput = new TextInputBuilder()
           .setCustomId('input_buttons')
-          .setLabel('Buttons to Include (Like, RT, Comment)')
+          .setLabel('Buttons (Like, RT, Comment, or "none")')
           .setValue('Like, RT, Comment')
-          .setPlaceholder('e.g. Like, RT or only Like or all')
+          .setPlaceholder('e.g. Like, RT or type "none" for no buttons')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
@@ -998,11 +998,6 @@ export default {
         const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
         const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-        const messageHeader =
-          `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-          `**Engage to collect your points**\n` +
-          `Expires <t:${expireTimestampSec}:R>`;
-
         const tweetEmbed = new EmbedBuilder()
           .setColor(0x1da1f2)
           .setAuthor({
@@ -1027,19 +1022,33 @@ export default {
         }
 
         // Determine which action buttons to include based on admin preference
-        const btnFilter = (buttonsStr || 'all').toLowerCase();
-        const isAll =
-          btnFilter === 'all' ||
-          (!btnFilter.includes('like') &&
-            !btnFilter.includes('rt') &&
-            !btnFilter.includes('retweet') &&
-            !btnFilter.includes('repost') &&
-            !btnFilter.includes('comment'));
+        const btnFilter = (buttonsStr || '').toLowerCase().trim();
+        const isNone =
+          btnFilter === 'none' ||
+          btnFilter === 'no' ||
+          btnFilter === 'off' ||
+          btnFilter === '0' ||
+          btnFilter === 'false' ||
+          btnFilter === 'remove' ||
+          btnFilter === 'remove all' ||
+          btnFilter === 'hide';
 
-        const includeLike = isAll || btnFilter.includes('like');
+        const isAll =
+          !isNone &&
+          (btnFilter === 'all' ||
+            btnFilter === '' ||
+            (!btnFilter.includes('like') &&
+              !btnFilter.includes('rt') &&
+              !btnFilter.includes('retweet') &&
+              !btnFilter.includes('repost') &&
+              !btnFilter.includes('comment') &&
+              !btnFilter.includes('reply')));
+
+        const includeLike = !isNone && (isAll || btnFilter.includes('like'));
         const includeRt =
-          isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost');
-        const includeComment = isAll || btnFilter.includes('comment') || btnFilter.includes('reply');
+          !isNone &&
+          (isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost'));
+        const includeComment = !isNone && (isAll || btnFilter.includes('comment') || btnFilter.includes('reply'));
 
         const actionRow = new ActionRowBuilder();
 
@@ -1073,17 +1082,28 @@ export default {
           );
         }
 
-        actionRow.addComponents(
-          new ButtonBuilder()
-            .setLabel('View on X')
-            .setStyle(ButtonStyle.Link)
-            .setURL(cleanUrl)
-        );
+        if (btnFilter !== 'hide all' && btnFilter !== 'no buttons') {
+          actionRow.addComponents(
+            new ButtonBuilder()
+              .setLabel('View on X')
+              .setStyle(ButtonStyle.Link)
+              .setURL(cleanUrl)
+          );
+        }
+
+        const hasAnyAction = includeLike || includeRt || includeComment;
+        const messageHeader = hasAnyAction
+          ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
+            `**Engage to collect your points**\n` +
+            `Expires <t:${expireTimestampSec}:R>`
+          : `**${authorDisplayName}** just posted :\n${cleanUrl}`;
+
+        const components = actionRow.components.length > 0 ? [actionRow] : [];
 
         const sentMessage = await interaction.channel.send({
           content: messageHeader,
           embeds: [tweetEmbed],
-          components: [actionRow],
+          components,
         });
 
         await supabase.from('tweet_quests').upsert(

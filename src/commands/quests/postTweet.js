@@ -135,19 +135,33 @@ export default {
     }
 
     // 3. Construct Interactive Action Row with Filtered Buttons
-    const btnFilter = buttonsOption.toLowerCase();
-    const isAll =
-      btnFilter === 'all' ||
-      (!btnFilter.includes('like') &&
-        !btnFilter.includes('rt') &&
-        !btnFilter.includes('retweet') &&
-        !btnFilter.includes('repost') &&
-        !btnFilter.includes('comment'));
+    const btnFilter = buttonsOption.toLowerCase().trim();
+    const isNone =
+      btnFilter === 'none' ||
+      btnFilter === 'no' ||
+      btnFilter === 'off' ||
+      btnFilter === '0' ||
+      btnFilter === 'false' ||
+      btnFilter === 'remove' ||
+      btnFilter === 'remove all' ||
+      btnFilter === 'hide';
 
-    const includeLike = isAll || btnFilter.includes('like');
+    const isAll =
+      !isNone &&
+      (btnFilter === 'all' ||
+        btnFilter === '' ||
+        (!btnFilter.includes('like') &&
+          !btnFilter.includes('rt') &&
+          !btnFilter.includes('retweet') &&
+          !btnFilter.includes('repost') &&
+          !btnFilter.includes('comment') &&
+          !btnFilter.includes('reply')));
+
+    const includeLike = !isNone && (isAll || btnFilter.includes('like'));
     const includeRt =
-      isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost');
-    const includeComment = isAll || btnFilter.includes('comment') || btnFilter.includes('reply');
+      !isNone &&
+      (isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost'));
+    const includeComment = !isNone && (isAll || btnFilter.includes('comment') || btnFilter.includes('reply'));
 
     const actionRow = new ActionRowBuilder();
 
@@ -181,19 +195,31 @@ export default {
       );
     }
 
-    actionRow.addComponents(
-      new ButtonBuilder()
-        .setLabel('View on X')
-        .setStyle(ButtonStyle.Link)
-        .setURL(cleanUrl)
-    );
+    if (btnFilter !== 'hide all' && btnFilter !== 'no buttons') {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setLabel('View on X')
+          .setStyle(ButtonStyle.Link)
+          .setURL(cleanUrl)
+      );
+    }
+
+    const hasAnyAction = includeLike || includeRt || includeComment;
+    if (!hasAnyAction) {
+      messageHeader = `**${authorDisplayName}** just posted :\n${cleanUrl}`;
+      if (roleMention) {
+        messageHeader += `\n\n<@&${roleMention.id}>`;
+      }
+    }
+
+    const components = actionRow.components.length > 0 ? [actionRow] : [];
 
     try {
       // 4. Send the message to the target broadcast channel
       const sentMessage = await targetChannel.send({
         content: messageHeader,
         embeds: [tweetEmbed],
-        components: [actionRow],
+        components,
       });
 
       // 5. Store Quest details in Supabase
