@@ -11,6 +11,12 @@ import { getRequiredXpForLevel } from './levelCalculator.js';
  * Builds the Questify Community Hub interactive embed and action rows for a user.
  */
 export async function buildHubPayload(guild, user) {
+  if (!guild || !guild.id) {
+    return {
+      content:
+        '⚠️ Questify is not added to this server as a bot. Please invite Questify to this server using this link:\nhttps://discord.com/oauth2/authorize?client_id=1550543145840934942&permissions=8&scope=bot%20applications.commands',
+    };
+  }
   const guildId = guild.id;
   const userId = user.id;
 

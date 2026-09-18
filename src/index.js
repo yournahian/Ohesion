@@ -44,6 +44,11 @@ async function main() {
   const eventsPath = path.join(__dirname, 'events');
   await loadEvents(client, eventsPath);
 
+  // Guild join listener
+  client.on('guildCreate', (guild) => {
+    console.log(`[NEW SERVER JOINED] ${guild.name} (ID: ${guild.id}) - Members: ${guild.memberCount}`);
+  });
+
   // Connect to Discord
   if (!config.discordToken) {
     console.error('CRITICAL: DISCORD_TOKEN is not defined in .env. Please set it before starting.');

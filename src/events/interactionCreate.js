@@ -515,7 +515,10 @@ export default {
       // --- D. MEMBER HUB: REFRESH STATS ---
       if (customId === 'hub_refresh') {
         await interaction.deferUpdate();
-        const payload = await buildHubPayload(interaction.guild, interaction.user);
+        const guild =
+          interaction.guild ||
+          (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        const payload = await buildHubPayload(guild, interaction.user);
         return interaction.editReply(payload);
       }
 
@@ -596,7 +599,7 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0x8338ec)
-          .setTitle(`🏆 ${interaction.guild.name} Leaderboard`)
+          .setTitle(`🏆 ${interaction.guild?.name || 'Server'} Leaderboard`)
           .setDescription(list)
           .setFooter({ text: 'Questify Gamification Leaderboard' });
 
@@ -691,7 +694,7 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0xffb703)
-          .setTitle(`🛒 ${interaction.guild.name} • Community Marketplace`)
+          .setTitle(`🛒 ${interaction.guild?.name || 'Server'} • Community Marketplace`)
           .setDescription(`${itemListText}\n\n*Select an item below to purchase!*`)
           .setFooter({ text: 'Quest Points are automatically deducted upon purchase' });
 
@@ -727,7 +730,7 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0xffd166)
-          .setTitle(`🔨 ${interaction.guild.name} • Active Auctions`)
+          .setTitle(`🔨 ${interaction.guild?.name || 'Server'} • Active Auctions`)
           .setDescription(
             `${auctionListText}\n\n` +
             `*Head over to the live auction message to place bids!*`
@@ -1315,7 +1318,10 @@ export default {
         const rewardXp = parseInt(xpStr, 10) || 50;
 
         // Collect all human members in any voice channel in the guild
-        const voiceChannels = interaction.guild.channels.cache.filter(c => c.isVoiceBased());
+        const guild =
+          interaction.guild ||
+          (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        const voiceChannels = guild ? guild.channels.cache.filter((c) => c.isVoiceBased()) : [];
         const rewardedMemberIds = [];
 
         for (const [_, vc] of voiceChannels) {

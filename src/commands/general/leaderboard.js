@@ -5,8 +5,12 @@ export default {
   data: new SlashCommandBuilder()
     .setName('leaderboard')
     .setDescription('Displays the top 10 members in this server ranked by XP and Level.'),
+
   async execute(interaction) {
     const guildId = interaction.guildId;
+    const guild =
+      interaction.guild ||
+      (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
 
     await interaction.deferReply();
 
@@ -42,11 +46,14 @@ export default {
 
     const embed = new EmbedBuilder()
       .setColor(0x8338ec)
-      .setTitle(`🏆 ${interaction.guild.name} — Community Leaderboard`)
+      .setTitle(`🏆 ${guild?.name || 'Server'} — Community Leaderboard`)
       .setDescription(leaderboardList)
-      .setThumbnail(interaction.guild.iconURL({ dynamic: true }))
-      .setFooter({ text: 'Earn XP by being active in chat • Engage.io' })
+      .setFooter({ text: 'Earn XP by being active in chat • Questify' })
       .setTimestamp();
+
+    if (guild) {
+      embed.setThumbnail(guild.iconURL({ dynamic: true }));
+    }
 
     return interaction.editReply({ embeds: [embed] });
   },
