@@ -55,14 +55,14 @@ export default {
       .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
         { name: '🎖️ Level', value: `**${level}**`, inline: true },
-        { name: '🪙 Engage Points', value: `**${points.toLocaleString()}**`, inline: true },
+        { name: '🪙 Quest Points', value: `**${points.toLocaleString()}**`, inline: true },
         { name: '✨ Total XP', value: `**${xp.toLocaleString()}**`, inline: true },
         {
           name: `📈 Level Progress (${progressPercent}%)`,
           value: `${progressBar}\n${xpIntoLevel.toLocaleString()} / ${xpNeededForNext.toLocaleString()} XP to Level ${level + 1}`,
         }
       )
-      .setFooter({ text: 'Engage.io Gamification System' })
+      .setFooter({ text: 'Questify Gamification System' })
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

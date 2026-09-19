@@ -76,7 +76,7 @@ export default {
     .addStringOption(option =>
       option
         .setName('custom_text')
-        .setDescription('Custom description / requirements (formatted Engage.io style)')
+        .setDescription('Custom description / requirements list for the post')
         .setRequired(false)
     ),
 
@@ -165,7 +165,7 @@ export default {
       }
     }
 
-    // Format custom snippet with Engage.io bullet points
+    // Format custom snippet with bullet points
     let formattedSnippet = '';
     if (customText && customText.trim()) {
       formattedSnippet = customText
@@ -248,7 +248,7 @@ export default {
 
     const hasAnyAction = includeLike || includeRt || includeComment;
 
-    // Construct Engage.io style Message Content
+    // Construct Message Content
     let messageContent = hasAnyAction
       ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
         `**Engage to collect your points**\n` +

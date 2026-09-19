@@ -87,6 +87,83 @@ function parseDuration(str) {
   return null;
 }
 
+/**
+ * Processes custom snippet lines:
+ * - Resolves Discord role tags (e.g. @Socials, @Verified) to <@&roleId>
+ * - Converts Twitter / X handle mentions (e.g. @goldfishggbr or @account) into clickable links [@handle](https://x.com/handle)
+ * - Formats requirement text with bullets (• )
+ * - Keeps standalone role/mention tags at the bottom without bullets
+ */
+function processSnippetRequirements(customText, guild, tweetUsername) {
+  if (!customText || !customText.trim()) return { snippetBody: '', pingContent: '' };
+
+  const lines = customText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const bulletLines = [];
+  const tagLines = [];
+
+  const roles = guild?.roles?.cache ? Array.from(guild.roles.cache.values()) : [];
+  const sortedRoles = [...roles].sort((a, b) => b.name.length - a.name.length);
+
+  for (const rawLine of lines) {
+    let line = rawLine;
+
+    // 1. Resolve Discord roles in the line: e.g. @Verified or @Socials
+    for (const r of sortedRoles) {
+      const escapedRole = r.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const roleRegex = new RegExp(`@${escapedRole}(?=[\\s,.:;!?)]|$)`, 'gi');
+      if (roleRegex.test(line)) {
+        line = line.replace(roleRegex, `<@&${r.id}>`);
+      }
+    }
+
+    // 2. Convert explicit Twitter/X URLs into formatted links: [@handle](https://x.com/handle)
+    line = line.replace(/https?:\/\/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,25})(?:\/[^\s)]*)?/gi, '[@$1](https://x.com/$1)');
+
+    // 3. Link Twitter handle mentions (e.g. @goldfishggbr) if not a Discord mention or role
+    line = line.replace(/(^|[^\w<@&])@([a-zA-Z0-9_]{1,25})(?=[^\w]|$)/g, (match, prefix, handle) => {
+      const lowerHandle = handle.toLowerCase();
+      // If it's @everyone or @here, leave as native mention
+      if (lowerHandle === 'everyone' || lowerHandle === 'here') {
+        return `${prefix}@${handle}`;
+      }
+      // If it matches a guild role name, convert to role mention
+      const matchedRole = roles.find((r) => r.name.toLowerCase() === lowerHandle);
+      if (matchedRole) {
+        return `${prefix}<@&${matchedRole.id}>`;
+      }
+      // If it says @account or @x, link to the tweet's author
+      if (lowerHandle === 'account' || lowerHandle === 'x') {
+        return `${prefix}[@${tweetUsername}](https://x.com/${tweetUsername})`;
+      }
+      // Otherwise, link to the Twitter / X profile
+      return `${prefix}[@${handle}](https://x.com/${handle})`;
+    });
+
+    // Also support "follow the account" or "follow account" or "follow x"
+    line = line.replace(/\bfollow(?:\s+the)?\s+(?:account|x(?:\s+acc(?:ount)?)?)\b/gi, `follow [@${tweetUsername}](https://x.com/${tweetUsername})`);
+
+    // 4. Check if this line is purely a role/tag mention (e.g. "@Socials" or "<@&12345>" or "@everyone")
+    const isPureTagLine = /^(?:<@&?\d+>|@everyone|@here|\s+)+$/.test(line);
+
+    if (isPureTagLine) {
+      tagLines.push(line);
+    } else {
+      // Ensure bullet prefix
+      const cleanText = line.replace(/^[•\-\*]\s*/, '');
+      bulletLines.push(`• ${cleanText}`);
+    }
+  }
+
+  return {
+    snippetBody: bulletLines.join('\n'),
+    pingContent: tagLines.join('\n'),
+  };
+}
+
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
@@ -160,32 +237,24 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        const tagInput = new TextInputBuilder()
-          .setCustomId('input_tag')
-          .setLabel('Ping Role / Server Tag (Optional)')
-          .setPlaceholder('e.g. @Socials, @everyone, or role name')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_options')
           .setLabel('Thumbnail / Image & Action Buttons')
-          .setValue('Image: Yes | Buttons: Like, RT, Comment')
-          .setPlaceholder('Image: Yes/No | Buttons: Like, RT, Comment (or "none")')
+          .setValue('[✓] Image  [✓] Buttons')
+          .setPlaceholder('Tick [✓] or untick [ ] what you want. e.g. [✓] Image  [ ] Buttons')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
         const textInput = new TextInputBuilder()
           .setCustomId('input_custom_text')
-          .setLabel('Custom Snippet / Requirements (Engage.io)')
-          .setPlaceholder('e.g. Account must have 100 followers\nMust follow @account')
+          .setLabel('Custom Snippet & Requirements')
+          .setPlaceholder('Users must follow @account to earn points.\nOnly users with the role @Verified can participate.\n@Socials')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(false);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(urlInput),
           new ActionRowBuilder().addComponents(pointsHoursInput),
-          new ActionRowBuilder().addComponents(tagInput),
           new ActionRowBuilder().addComponents(optionsInput),
           new ActionRowBuilder().addComponents(textInput)
         );
@@ -1767,132 +1836,116 @@ export default {
         const expiresAtDate = new Date(Date.now() + durationMs);
         const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-        // Determine if thumbnail/image display is enabled (Default: true unless explicitly set to no/off/false)
+        // Determine if thumbnail/image display is enabled (Default: true)
         let showImage = true;
-        let btnFilter = 'all';
+        let includeButtons = true;
+        let includeLike = true;
+        let includeRt = true;
+        let includeComment = true;
 
         if (optionsStr) {
           const lower = optionsStr.toLowerCase();
+
+          // Image toggle: check untick [ ] or explicit "no" / "off" / "none"
           if (
+            lower.includes('[ ] image') ||
+            lower.includes('[-] image') ||
+            lower.includes('[x] image: no') ||
+            lower.includes('❌ image') ||
             lower.includes('image: no') ||
             lower.includes('image: off') ||
             lower.includes('image: false') ||
+            lower.includes('image: none') ||
             lower.includes('no image') ||
-            lower.includes('img: no') ||
-            lower.includes('img: off') ||
             lower.includes('hide image') ||
-            lower.trim() === 'no' ||
-            lower.trim() === 'off'
+            lower.includes('img: no') ||
+            lower.includes('img: off')
           ) {
             showImage = false;
           } else if (
+            lower.includes('[✓] image') ||
+            lower.includes('[x] image') ||
+            lower.includes('✅ image') ||
             lower.includes('image: yes') ||
-            lower.includes('image: on') ||
-            lower.includes('image: true') ||
             lower.includes('show image')
           ) {
             showImage = true;
           }
 
-          // Clean out image directive so it doesn't collide with buttons
-          const cleanBtnPart = lower
-            .replace(/image\s*:\s*(yes|no|on|off|true|false)/gi, '')
-            .replace(/(no\s+image|show\s+image|img\s*:\s*(yes|no|on|off)|hide\s+image)/gi, '')
-            .replace(/[|]/g, ' ')
-            .trim();
-
-          if (cleanBtnPart) {
-            btnFilter = cleanBtnPart;
-          }
-        }
-
-        // Resolve tag mention (e.g. @Socials, @everyone, @here, or role ID / name)
-        let tagMention = '';
-        if (tagStr && tagStr.trim()) {
-          const t = tagStr.trim();
-          if (t === '@everyone' || t === '@here') {
-            tagMention = t;
-          } else if (/^<@&?\d+>$/.test(t)) {
-            tagMention = t;
-          } else if (/^\d{17,20}$/.test(t)) {
-            tagMention = `<@&${t}>`;
+          // Buttons toggle: check untick [ ] or explicit "none" / "no" / "off"
+          if (
+            lower.includes('[ ] button') ||
+            lower.includes('[-] button') ||
+            lower.includes('❌ button') ||
+            lower.includes('buttons: none') ||
+            lower.includes('button: none') ||
+            lower.includes('buttons: no') ||
+            lower.includes('button: no') ||
+            lower.includes('buttons: off') ||
+            lower.includes('buttons: false') ||
+            lower.includes('no buttons') ||
+            lower.includes('no button') ||
+            lower.includes('btn: none') ||
+            lower.includes('btn: no') ||
+            lower.includes('hide buttons') ||
+            lower.trim() === 'none' ||
+            lower.trim() === 'no' ||
+            lower.trim() === 'off'
+          ) {
+            includeButtons = false;
+            includeLike = false;
+            includeRt = false;
+            includeComment = false;
           } else {
-            const guild =
-              interaction.guild ||
-              (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
-            const cleanName = t.replace(/^@/, '').toLowerCase();
-            const role = guild?.roles?.cache?.find(
-              (r) => r.name.toLowerCase() === cleanName
-            );
-            if (role) {
-              tagMention = `<@&${role.id}>`;
-            } else {
-              tagMention = t.startsWith('@') ? t : `@${t}`;
+            // Check specific button options if specified
+            if (lower.includes('like') || lower.includes('rt') || lower.includes('comment')) {
+              includeLike = !lower.includes('[ ] like') && (lower.includes('like') || lower.includes('[✓] like'));
+              includeRt = !lower.includes('[ ] rt') && (lower.includes('rt') || lower.includes('retweet') || lower.includes('[✓] rt'));
+              includeComment = !lower.includes('[ ] comment') && (lower.includes('comment') || lower.includes('reply') || lower.includes('[✓] comment'));
             }
           }
         }
 
-        // Determine which action buttons to include based on admin preference
-        const isNone =
-          btnFilter === 'none' ||
-          btnFilter === 'no' ||
-          btnFilter === 'off' ||
-          btnFilter === '0' ||
-          btnFilter === 'false' ||
-          btnFilter === 'remove' ||
-          btnFilter === 'remove all' ||
-          btnFilter === 'hide';
-
-        const isAll =
-          !isNone &&
-          (btnFilter === 'all' ||
-            btnFilter === '' ||
-            (!btnFilter.includes('like') &&
-              !btnFilter.includes('rt') &&
-              !btnFilter.includes('retweet') &&
-              !btnFilter.includes('repost') &&
-              !btnFilter.includes('comment') &&
-              !btnFilter.includes('reply')));
-
-        const includeLike = !isNone && (isAll || btnFilter.includes('like'));
-        const includeRt =
-          !isNone &&
-          (isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost'));
-        const includeComment = !isNone && (isAll || btnFilter.includes('comment') || btnFilter.includes('reply'));
+        const guild =
+          interaction.guild ||
+          (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        if (guild && (!guild.roles.cache || guild.roles.cache.size <= 1)) {
+          await guild.roles.fetch().catch(() => null);
+        }
 
         const actionRow = new ActionRowBuilder();
 
-        if (includeLike) {
-          actionRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`verify_like_${tweetId}`)
-              .setLabel('Like')
-              .setEmoji('❤️')
-              .setStyle(ButtonStyle.Secondary)
-          );
-        }
+        if (includeButtons) {
+          if (includeLike) {
+            actionRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`verify_like_${tweetId}`)
+                .setLabel('Like')
+                .setEmoji('❤️')
+                .setStyle(ButtonStyle.Secondary)
+            );
+          }
 
-        if (includeRt) {
-          actionRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`verify_rt_${tweetId}`)
-              .setLabel('Retweet')
-              .setEmoji('🔁')
-              .setStyle(ButtonStyle.Secondary)
-          );
-        }
+          if (includeRt) {
+            actionRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`verify_rt_${tweetId}`)
+                .setLabel('Retweet')
+                .setEmoji('🔁')
+                .setStyle(ButtonStyle.Secondary)
+            );
+          }
 
-        if (includeComment) {
-          actionRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`verify_comment_${tweetId}`)
-              .setLabel('Comment')
-              .setEmoji('💬')
-              .setStyle(ButtonStyle.Secondary)
-          );
-        }
+          if (includeComment) {
+            actionRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`verify_comment_${tweetId}`)
+                .setLabel('Comment')
+                .setEmoji('💬')
+                .setStyle(ButtonStyle.Secondary)
+            );
+          }
 
-        if (btnFilter !== 'hide all' && btnFilter !== 'no buttons') {
           actionRow.addComponents(
             new ButtonBuilder()
               .setLabel('View on X')
@@ -1901,30 +1954,31 @@ export default {
           );
         }
 
-        const hasAnyAction = includeLike || includeRt || includeComment;
+        // Process custom snippet with Twitter linking and role tagging
+        const processedSnippet = processSnippetRequirements(customText, guild, username);
 
-        // Build Engage.io styled message content
-        let messageContent = hasAnyAction
-          ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-            `**Engage to collect your points**\n` +
-            `Expires <t:${expireTimestampSec}:R>`
-          : `**${authorDisplayName}** just posted :\n${cleanUrl}`;
+        // Build clean message content
+        let messageContent =
+          `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
+          `**Engage to collect your points**\n` +
+          `Expires <t:${expireTimestampSec}:R>`;
 
-        // Format custom snippet with Engage.io bullet points
-        if (customText && customText.trim()) {
-          const formattedSnippet = customText
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map((line) => (/^[•\-\*]\s+/.test(line) ? line : `• ${line}`))
-            .join('\n');
-
-          messageContent += `\n\n${formattedSnippet}`;
+        if (processedSnippet.snippetBody) {
+          messageContent += `\n\n${processedSnippet.snippetBody}`;
         }
 
-        // Append role / tag ping
-        if (tagMention) {
-          messageContent += `\n${tagMention}`;
+        // Append bottom tag lines (e.g. @Socials, @everyone, etc.)
+        if (processedSnippet.pingContent) {
+          messageContent += `\n${processedSnippet.pingContent}`;
+        } else if (tagStr && tagStr.trim()) {
+          // Backward compatibility if tag was passed
+          let fallbackTag = tagStr.trim();
+          if (fallbackTag !== '@everyone' && fallbackTag !== '@here' && !/^<@&?\d+>$/.test(fallbackTag)) {
+            const cleanName = fallbackTag.replace(/^@/, '').toLowerCase();
+            const role = guild?.roles?.cache?.find((r) => r.name.toLowerCase() === cleanName);
+            if (role) fallbackTag = `<@&${role.id}>`;
+          }
+          messageContent += `\n${fallbackTag}`;
         }
 
         // Build optional Tweet Media Embed if enabled

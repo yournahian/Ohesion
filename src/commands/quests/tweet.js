@@ -1,7 +1,7 @@
 import postTweet from './postTweet.js';
 import { SlashCommandBuilder } from 'discord.js';
 
-// Re-export /tweet with identical options as /post-tweet to match Engage.io's primary command name
+// Re-export /tweet with identical options as /post-tweet
 const tweetCommand = {
   ...postTweet,
   data: new SlashCommandBuilder()
@@ -35,7 +35,7 @@ const tweetCommand = {
       option.setName('role_mention').setDescription('Role to ping (alternative to tag)').setRequired(false)
     )
     .addStringOption(option =>
-      option.setName('custom_text').setDescription('Custom description / requirements (formatted Engage.io style)').setRequired(false)
+      option.setName('custom_text').setDescription('Custom description / requirements list for the post').setRequired(false)
     ),
 };
 
