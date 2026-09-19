@@ -138,7 +138,12 @@ export default {
         .setCustomId('admin_create_poll')
         .setLabel('Create Poll')
         .setEmoji('📊')
-        .setStyle(ButtonStyle.Success)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('admin_create_battle')
+        .setLabel('Chaos Clash')
+        .setEmoji('⚔️')
+        .setStyle(ButtonStyle.Danger)
     );
 
     return interaction.editReply({

@@ -16,7 +16,7 @@ async function getCommandFiles(dir) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-  const UI_COMMANDS = new Set(['hub', 'admin', 'setup']);
+  const UI_COMMANDS = new Set(['hub', 'admin', 'setup', 'battle']);
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);

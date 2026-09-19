@@ -41,6 +41,23 @@ import {
   castPollVote,
   hasUserVoted,
 } from '../utils/pollManager.js';
+import {
+  createBattleMatch,
+  joinBattleMatch,
+  setPlayerArchetype,
+  buildLobbyPayload,
+  buildClassSelectionPayload,
+  startBattleSimulation,
+  resolveQTEAction,
+  getActiveMatch,
+  getMatchById,
+} from '../modules/battle/battleEngine.js';
+import {
+  BATTLE_COSMETICS_CATALOG,
+  purchaseCosmeticItem,
+  getUserCosmetics,
+} from '../modules/battle/battleCosmetics.js';
+import { placeBet } from '../modules/battle/battleBetting.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -308,6 +325,59 @@ export default {
           new ActionRowBuilder().addComponents(optionsInput),
           new ActionRowBuilder().addComponents(durationInput),
           new ActionRowBuilder().addComponents(rewardInput),
+          new ActionRowBuilder().addComponents(tagInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN CREATE CHAOS CLASH BATTLE ROYALE MODAL (100% UI-DRIVEN) ---
+      if (customId === 'admin_create_battle') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_create_battle')
+          .setTitle('⚔️ Launch Chaos Clash Battle');
+
+        const modeInput = new TextInputBuilder()
+          .setCustomId('input_battle_mode')
+          .setLabel('Mode: interactive or classic')
+          .setValue('interactive')
+          .setPlaceholder('interactive (tactical & QTEs) or classic (100% RNG)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const durationInput = new TextInputBuilder()
+          .setCustomId('input_battle_duration')
+          .setLabel('Sign-up Duration in Seconds (e.g. 45)')
+          .setValue('45')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const prizeInput = new TextInputBuilder()
+          .setCustomId('input_battle_prize')
+          .setLabel('Prize Pool: QP, XP (e.g. 500, 250)')
+          .setValue('500, 250')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const entryInput = new TextInputBuilder()
+          .setCustomId('input_battle_entry')
+          .setLabel('Entry Fee in QP (0 for Free Entry)')
+          .setValue('0')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const tagInput = new TextInputBuilder()
+          .setCustomId('input_battle_tag')
+          .setLabel('Ping Role / Server Tag (Optional)')
+          .setPlaceholder('e.g. @everyone, @here, or role name')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(modeInput),
+          new ActionRowBuilder().addComponents(durationInput),
+          new ActionRowBuilder().addComponents(prizeInput),
+          new ActionRowBuilder().addComponents(entryInput),
           new ActionRowBuilder().addComponents(tagInput)
         );
 
@@ -1446,6 +1516,135 @@ export default {
 
         return interaction.editReply({ embeds: [voteEmbed] });
       }
+
+      // --- O. CHAOS CLASH: JOIN LOBBY BUTTON ---
+      if (customId.startsWith('battle_join_')) {
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await joinBattleMatch(guildId, interaction.user);
+        if (!result.success) {
+          return interaction.editReply({ content: result.message });
+        }
+
+        // Update live lobby message embed with new fighter list
+        const payload = buildLobbyPayload(result.match);
+        await interaction.message.edit(payload).catch(() => null);
+
+        return interaction.editReply({
+          content:
+            `⚔️ **Welcome to the Arena!** You have entered Chaos Clash (**${result.totalJoined}** fighters currently registered).\n` +
+            (result.match.mode === 'interactive'
+              ? `🛡️ Click **Choose Archetype** on the lobby message if you want to switch from default Tactician to Berserker, Medic, or Thief!`
+              : ''),
+        });
+      }
+
+      // --- P. CHAOS CLASH: CHOOSE ARCHETYPE BUTTON ---
+      if (customId.startsWith('battle_pick_class_')) {
+        const matchId = customId.replace('battle_pick_class_', '');
+        const payload = buildClassSelectionPayload(matchId);
+        return interaction.reply(payload);
+      }
+
+      // --- Q. CHAOS CLASH: PLACE BET BUTTON ---
+      if (customId.startsWith('battle_bet_')) {
+        const matchId = customId.replace('battle_bet_', '');
+        const match = getMatchById(matchId);
+        if (!match || match.status !== 'signup') {
+          return interaction.reply({ content: '⏳ Betting is only open during the active sign-up phase!', ephemeral: true });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_battle_bet_${matchId}`)
+          .setTitle('🪙 Spectator Betting Pool');
+
+        const fighterInput = new TextInputBuilder()
+          .setCustomId('input_bet_fighter')
+          .setLabel('Fighter Name (Exact or partial name)')
+          .setPlaceholder('e.g. nahian or Alice')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const amountInput = new TextInputBuilder()
+          .setCustomId('input_bet_amount')
+          .setLabel('Bet Amount in Quest Points (QP)')
+          .setPlaceholder('e.g. 50')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(fighterInput),
+          new ActionRowBuilder().addComponents(amountInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- R. CHAOS CLASH: LIVE QTE ACTIONS (SUPPLY LOOT & COVER) ---
+      if (customId.startsWith('battle_qte_loot_')) {
+        const matchId = customId.replace('battle_qte_loot_', '');
+        await interaction.deferReply({ ephemeral: true });
+        const result = resolveQTEAction(matchId, discordId, 'loot');
+        return interaction.editReply({ content: result.message });
+      }
+
+      if (customId.startsWith('battle_qte_cover_')) {
+        const matchId = customId.replace('battle_qte_cover_', '');
+        await interaction.deferReply({ ephemeral: true });
+        const result = resolveQTEAction(matchId, discordId, 'cover');
+        return interaction.editReply({ content: result.message });
+      }
+
+      // --- S. CHAOS CLASH: ARMORY & COSMETICS CATALOG ---
+      if (customId === 'battle_armory') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const userCosmetics = await getUserCosmetics(guildId, discordId);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x7209b7)
+          .setTitle('🏪 Chaos Clash Armory & Prestige Cosmetics')
+          .setDescription(
+            `Upgrade your fighter status in the arena! Purchased cosmetics are permanently unlocked and displayed dynamically in live event logs.\n\n` +
+            `**🎖️ Your Current Loadout:**\n` +
+            `• Title / Prefix: ${userCosmetics.battle_title ? `**${userCosmetics.battle_title}**` : '*None*'}\n` +
+            `• Custom Emoji: ${userCosmetics.battle_emoji || '*None*'}\n` +
+            `• Hex Accent: ${userCosmetics.battle_name_color || '*Default*'}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `**Tier 1 (Common - 150 QP):** Standard Combat Emojis (⚔️, 🛡️, 🎯, 🏹)\n` +
+            `**Tier 2 (Rare - 350 QP):** Luminescent Hex Bracket Tags (⟦MINT⟧, ⟦ROSE⟧, ⟦GOLD⟧, ⟦FROST⟧)\n` +
+            `**Tier 3 (Epic - 750 QP):** Elite Animated Crests (🔥, 👑, ⚡, 💀, 💎)\n` +
+            `**Tier 4 (Mythic - 1,500 QP):** Legendary Overriding Titles ([Warlord], [GOD-TIER], [Immortal], [Apex])\n\n` +
+            `*Select an item below to purchase with your Quest Points!*`
+          )
+          .setFooter({ text: 'Points are automatically deducted from your server profile' });
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('select_buy_cosmetic')
+          .setPlaceholder('Choose a cosmetic item to equip');
+
+        const allItems = [
+          ...BATTLE_COSMETICS_CATALOG.tier1,
+          ...BATTLE_COSMETICS_CATALOG.tier2,
+          ...BATTLE_COSMETICS_CATALOG.tier3,
+          ...BATTLE_COSMETICS_CATALOG.tier4,
+        ];
+
+        selectMenu.addOptions(
+          allItems.slice(0, 25).map((it) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(`[T${it.tier}] ${it.name} (${it.cost} QP)`)
+              .setDescription(it.description.slice(0, 100))
+              .setValue(it.id)
+              .setEmoji(it.type === 'emoji' ? it.value : '🏷️')
+          )
+        );
+
+        return interaction.editReply({
+          embeds: [embed],
+          components: [new ActionRowBuilder().addComponents(selectMenu)],
+        });
+      }
     }
 
     // ==========================================
@@ -1467,6 +1666,7 @@ export default {
         'modal_create_quiz',
         'modal_setup_live_quiz',
         'modal_create_poll',
+        'modal_create_battle',
       ];
       if (
         adminModals.includes(modalId) ||
@@ -2483,6 +2683,145 @@ export default {
             `Members can cast their vote using the interactive buttons!`,
         });
       }
+
+      // --- MODAL: CREATE CHAOS CLASH BATTLE ROYALE ---
+      if (modalId === 'modal_create_battle') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const existingMatch = getActiveMatch(guildId);
+        if (existingMatch && existingMatch.status !== 'finished') {
+          return interaction.editReply({
+            content: `⚠️ An active Chaos Clash match (\`${existingMatch.matchId}\`) is already in progress in this server!`,
+          });
+        }
+
+        const rawMode = (interaction.fields.getTextInputValue('input_battle_mode') || 'interactive').trim().toLowerCase();
+        const mode = rawMode === 'classic' ? 'classic' : 'interactive';
+        const durationStr = interaction.fields.getTextInputValue('input_battle_duration') || '45';
+        const durationSec = Math.max(15, Math.min(300, parseInt(durationStr, 10) || 45));
+
+        const prizeStr = interaction.fields.getTextInputValue('input_battle_prize') || '500, 250';
+        const parts = prizeStr.split(/[,|\s]+/).filter(Boolean);
+        const prizePool = Math.max(50, parseInt(parts[0], 10) || 500);
+        const prizeXp = Math.max(25, parseInt(parts[1], 10) || Math.round(prizePool / 2));
+
+        let entryFee = 0;
+        try {
+          entryFee = Math.max(0, parseInt(interaction.fields.getTextInputValue('input_battle_entry') || '0', 10) || 0);
+        } catch (_) {}
+
+        let tagStr = '';
+        try {
+          tagStr = interaction.fields.getTextInputValue('input_battle_tag') || '';
+        } catch (_) {}
+
+        let tagMention = '';
+        if (tagStr && tagStr.trim()) {
+          const t = tagStr.trim();
+          if (t === '@everyone' || t === '@here') {
+            tagMention = t;
+          } else if (/^<@&?\d+>$/.test(t)) {
+            tagMention = t;
+          } else if (/^\d{17,20}$/.test(t)) {
+            tagMention = `<@&${t}>`;
+          } else {
+            const guild = interaction.guild || (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+            const cleanName = t.replace(/^@/, '').toLowerCase();
+            const role = guild?.roles?.cache?.find((r) => r.name.toLowerCase() === cleanName);
+            tagMention = role ? `<@&${role.id}>` : (t.startsWith('@') ? t : `@${t}`);
+          }
+        }
+
+        const match = createBattleMatch({
+          guildId,
+          channelId: interaction.channelId,
+          createdBy: discordId,
+          mode,
+          signupDurationSec: durationSec,
+          entryFee,
+          prizePool,
+          prizeXp,
+        });
+
+        const lobbyPayload = buildLobbyPayload(match);
+        if (tagMention) {
+          lobbyPayload.content = tagMention;
+          lobbyPayload.allowedMentions = { parse: ['roles', 'users', 'everyone'] };
+        }
+
+        const lobbyMsg = await interaction.channel.send(lobbyPayload);
+        match.messageId = lobbyMsg.id;
+
+        // Schedule match start
+        setTimeout(() => {
+          startBattleSimulation(match, interaction.client);
+        }, durationSec * 1000);
+
+        return interaction.editReply({
+          content:
+            `✅ **Chaos Clash Match Created!** (${mode.toUpperCase()} MODE)\n` +
+            `• Sign-up Window: **${durationSec}s**\n` +
+            `• Grand Prize: **${prizePool.toLocaleString()} QP** & **+${prizeXp} XP**\n` +
+            `• Entry Fee: **${entryFee > 0 ? `${entryFee} QP` : 'Free'}**\n\n` +
+            `Fighters can join using the **[ ⚔️ Enter Clash ]** button!`,
+        });
+      }
+
+      // --- MODAL: SPECTATOR BET SUBMISSION ---
+      if (modalId.startsWith('modal_battle_bet_')) {
+        const matchId = modalId.replace('modal_battle_bet_', '');
+        const match = getMatchById(matchId);
+        if (!match || match.status !== 'signup') {
+          return interaction.reply({ content: '⏳ Betting is closed for this match.', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const fighterQuery = interaction.fields.getTextInputValue('input_bet_fighter').trim().toLowerCase();
+        const amountStr = interaction.fields.getTextInputValue('input_bet_amount').trim();
+
+        // Find matching participant
+        let targetParticipant = null;
+        for (const p of match.participants.values()) {
+          if (
+            p.displayName.toLowerCase().includes(fighterQuery) ||
+            p.discordId === fighterQuery.replace(/<@!?(\d+)>/, '$1')
+          ) {
+            targetParticipant = p;
+            break;
+          }
+        }
+
+        if (!targetParticipant) {
+          return interaction.editReply({
+            content: `❌ Could not find a registered fighter matching "${fighterQuery}". Please check the lobby list and try again!`,
+          });
+        }
+
+        const result = await placeBet({
+          matchId,
+          guildId,
+          bettorId: discordId,
+          bettorName: interaction.user.displayName || interaction.user.username,
+          targetId: targetParticipant.discordId,
+          targetName: targetParticipant.displayName,
+          amount: amountStr,
+        });
+
+        if (!result.success) {
+          return interaction.editReply({ content: result.message });
+        }
+
+        return interaction.editReply({
+          content:
+            `🪙 **Bet Placed Successfully!**\n` +
+            `• Fighter: **${result.targetName}**\n` +
+            `• Wager: **${result.betAmount.toLocaleString()} QP**\n` +
+            `• Total Match Pool: **${result.totalPot.toLocaleString()} QP**\n` +
+            `• Remaining Balance: **${result.remainingPoints.toLocaleString()} QP**\n\n` +
+            `If your fighter claims victory, your proportional share of the pot will be credited automatically!`,
+        });
+      }
     }
 
     // ==========================================
@@ -2533,6 +2872,55 @@ export default {
           .setFooter({ text: 'Questify Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
+      }
+
+      // --- SELECT: CHAOS CLASH ARCHETYPE SELECTION ---
+      if (selectId.startsWith('select_battle_class_')) {
+        const archetype = interaction.values[0];
+        const result = setPlayerArchetype(guildId, discordId, archetype);
+        if (!result.success) {
+          return interaction.reply({ content: result.message, ephemeral: true });
+        }
+
+        const match = getActiveMatch(guildId);
+        if (match) {
+          const lobbyPayload = buildLobbyPayload(match);
+          if (match.messageId) {
+            const channel = await interaction.client.channels.fetch(match.channelId).catch(() => null);
+            const msg = await channel?.messages?.fetch(match.messageId).catch(() => null);
+            if (msg) await msg.edit(lobbyPayload).catch(() => null);
+          }
+        }
+
+        return interaction.reply({
+          content: `🛡️ **Archetype Equipped:** You are now entered into the battle as a **${result.archetype}**!`,
+          ephemeral: true,
+        });
+      }
+
+      // --- SELECT: PURCHASE CHAOS CLASH PRESTIGE COSMETIC ---
+      if (selectId === 'select_buy_cosmetic') {
+        const itemId = interaction.values[0];
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await purchaseCosmeticItem({
+          guildId,
+          discordId,
+          itemId,
+        });
+
+        if (!result.success) {
+          return interaction.editReply({ content: result.message });
+        }
+
+        return interaction.editReply({
+          content:
+            `🎉 **Prestige Cosmetic Unlocked!**\n\n` +
+            `• **Item:** ${result.item.name} (${result.item.cost} QP)\n` +
+            `• **Effect:** ${result.item.description}\n` +
+            `• **Remaining Balance:** ${result.remainingPoints.toLocaleString()} QP\n\n` +
+            `Your custom titles and emojis will now display dynamically across all future Chaos Clash live event logs!`,
+        });
       }
 
       // --- SELECT: DRAW RAFFLE WINNER (ADMIN) ---
