@@ -11,6 +11,7 @@ import {
   StringSelectMenuOptionBuilder,
   PermissionFlagsBits,
   MessageFlags,
+  ChannelType,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadata } from '../utils/twitter.js';
@@ -1010,38 +1011,66 @@ export default {
       }
 
       if (customId === 'admin_vc_snapshot') {
-        const modal = new ModalBuilder()
-          .setCustomId('modal_vc_snapshot')
-          .setTitle('🎙️ Voice Chat Attendance Snapshot');
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to run voice attendance snapshots.',
+            ephemeral: true,
+          });
+        }
 
-        const pointsInput = new TextInputBuilder()
-          .setCustomId('input_vc_points')
-          .setLabel('Quest Points Reward')
-          .setValue('50')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+        await interaction.deferReply({ ephemeral: true });
 
-        const xpInput = new TextInputBuilder()
-          .setCustomId('input_vc_xp')
-          .setLabel('XP Reward')
-          .setValue('50')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+        const guild = interaction.guild;
+        if (!guild) {
+          return interaction.editReply({ content: '❌ Could not retrieve server details.' });
+        }
 
-        const noteInput = new TextInputBuilder()
-          .setCustomId('input_vc_note')
-          .setLabel('Event Note / Reason')
-          .setValue('Community AMA Attendance')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
+        await guild.channels.fetch().catch(() => null);
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(pointsInput),
-          new ActionRowBuilder().addComponents(xpInput),
-          new ActionRowBuilder().addComponents(noteInput)
-        );
+        // Find all voice-based channels in the server
+        const voiceChannels = Array.from(guild.channels.cache.filter((c) => c.isVoiceBased()).values());
 
-        return interaction.showModal(modal);
+        // Count members connected server-wide
+        const totalVoiceMembers = guild.voiceStates.cache.filter((vs) => vs.channelId && !vs.member?.user?.bot).size;
+
+        const options = [
+          new StringSelectMenuOptionBuilder()
+            .setLabel('🌐 All Voice Channels (Server-Wide)')
+            .setDescription(`Snapshot all voice channels (${totalVoiceMembers} members active)`)
+            .setValue('all')
+            .setEmoji('🌐'),
+        ];
+
+        for (const vc of voiceChannels.slice(0, 24)) {
+          const count = guild.voiceStates.cache.filter((vs) => vs.channelId === vc.id && !vs.member?.user?.bot).size;
+          options.push(
+            new StringSelectMenuOptionBuilder()
+              .setLabel(vc.name.slice(0, 50))
+              .setDescription(`${count} active member${count === 1 ? '' : 's'} connected`)
+              .setValue(vc.id)
+              .setEmoji(vc.type === ChannelType.GuildStageVoice ? '🎭' : '🔊')
+          );
+        }
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('select_vc_target')
+          .setPlaceholder('Choose All Channels or a Specific Voice Channel')
+          .addOptions(options);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x118ab2)
+          .setTitle('🎙️ Voice Attendance Snapshot — Target Selection')
+          .setDescription(
+            `Choose whether to snapshot **All Voice Channels** or reward a **specific voice channel** below:\n\n` +
+            `• **Active Voice Members Server-Wide:** **${totalVoiceMembers}**\n` +
+            `• **Available Voice Channels:** **${voiceChannels.length}**\n\n` +
+            `*Selecting an option will immediately open the reward configuration modal.*`
+          )
+          .setFooter({ text: 'Questify Voice Engagement Tracking' });
+
+        return interaction.editReply({ embeds: [embed], components: [row] });
       }
 
       if (customId === 'admin_reward_member') {
@@ -2204,6 +2233,7 @@ export default {
       ];
       if (
         adminModals.includes(modalId) ||
+        modalId.startsWith('modal_vc_snapshot') ||
         modalId.startsWith('modal_lqz_addq_') ||
         modalId.startsWith('modal_lqz_bulkq_')
       ) {
@@ -2723,8 +2753,14 @@ export default {
       }
 
       // --- MODAL: VC SNAPSHOT ---
-      if (modalId === 'modal_vc_snapshot') {
+      if (modalId.startsWith('modal_vc_snapshot')) {
         await interaction.deferReply({ ephemeral: false });
+
+        const targetChannelId = modalId.startsWith('modal_vc_snapshot_')
+          ? modalId.replace('modal_vc_snapshot_', '')
+          : 'all';
+
+        const isAllChannels = targetChannelId === 'all';
 
         const pointsStr = interaction.fields.getTextInputValue('input_vc_points');
         const xpStr = interaction.fields.getTextInputValue('input_vc_xp');
@@ -2751,6 +2787,10 @@ export default {
         if (guild.voiceStates?.cache) {
           for (const [memberId, voiceState] of guild.voiceStates.cache) {
             if (voiceState.channelId) {
+              // If targeting a specific channel, only reward members in that channel
+              if (!isAllChannels && voiceState.channelId !== targetChannelId) {
+                continue;
+              }
               const member = voiceState.member || (await guild.members.fetch(memberId).catch(() => null));
               if (member && !member.user.bot && !rewardedMemberIds.includes(memberId)) {
                 rewardedMemberIds.push(memberId);
@@ -2760,7 +2800,10 @@ export default {
         }
 
         // 2. Check voice channels cache as secondary verification
-        const voiceChannels = guild.channels.cache.filter((c) => c.isVoiceBased());
+        const voiceChannels = isAllChannels
+          ? guild.channels.cache.filter((c) => c.isVoiceBased())
+          : guild.channels.cache.filter((c) => c.id === targetChannelId);
+
         for (const [_, vc] of voiceChannels) {
           if (vc.members) {
             for (const [memberId, member] of vc.members) {
@@ -2772,8 +2815,9 @@ export default {
         }
 
         if (rewardedMemberIds.length === 0) {
+          const targetName = isAllChannels ? 'any voice channels' : `<#${targetChannelId}>`;
           return interaction.editReply({
-            content: '⚠️ No active members found in any voice channels right now. (Make sure members are connected to a voice channel).',
+            content: `⚠️ No active members found in ${targetName} right now. (Make sure members are connected to the voice channel).`,
           });
         }
 
@@ -2802,6 +2846,7 @@ export default {
 
         const mentions = rewardedMemberIds.slice(0, 20).map(id => `<@${id}>`).join(' ');
         const extraCount = rewardedMemberIds.length > 20 ? ` and ${rewardedMemberIds.length - 20} more...` : '';
+        const targetLabel = isAllChannels ? '🌐 All Voice Channels (Server-Wide)' : `🔊 <#${targetChannelId}>`;
 
         const vcEmbed = new EmbedBuilder()
           .setColor(0x06d6a0)
@@ -3881,6 +3926,56 @@ export default {
         }
 
         return interaction.editReply(payload);
+      }
+
+      // --- SELECT: VOICE SNAPSHOT TARGET (ADMIN) ---
+      if (selectId === 'select_vc_target') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to run voice attendance snapshots.',
+            ephemeral: true,
+          });
+        }
+
+        const targetChannelId = interaction.values[0];
+        let channelTitle = 'All Voice Channels';
+        if (targetChannelId !== 'all') {
+          const ch = interaction.guild?.channels?.cache?.get(targetChannelId);
+          channelTitle = ch ? `#${ch.name.slice(0, 25)}` : 'Specific Channel';
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_vc_snapshot_${targetChannelId}`)
+          .setTitle(`🎙️ Snapshot: ${channelTitle.slice(0, 30)}`);
+
+        const pointsInput = new TextInputBuilder()
+          .setCustomId('input_vc_points')
+          .setLabel('Quest Points Reward')
+          .setValue('50')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const xpInput = new TextInputBuilder()
+          .setCustomId('input_vc_xp')
+          .setLabel('XP Reward')
+          .setValue('50')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const noteInput = new TextInputBuilder()
+          .setCustomId('input_vc_note')
+          .setLabel('Event Note / Reason')
+          .setValue(targetChannelId === 'all' ? 'Community Call Attendance' : `${channelTitle} Attendance`)
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(pointsInput),
+          new ActionRowBuilder().addComponents(xpInput),
+          new ActionRowBuilder().addComponents(noteInput)
+        );
+
+        return interaction.showModal(modal);
       }
 
       // --- SELECT: BUY MARKETPLACE ITEM (MEMBER) ---
