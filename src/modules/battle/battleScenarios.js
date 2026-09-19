@@ -6,6 +6,11 @@
  * - 🔮 | Neutral Events / Supplies / Ambient Lore
  * - 🗡️ | Weapon Crafting / Preparations
  * - ✨ | Revives / Second Chances
+ * - 📡 | Tactician Radar Evasion
+ * - 🩸 | Berserker Rage
+ * - 💉 | Medic Self-Revive
+ * - 💰 | Thief Heist
+ * - 📦 | QTE Weapon Airdrop
  */
 
 export const DUEL_KILL_SCENARIOS = [
@@ -59,4 +64,38 @@ export const REVIVE_SCENARIOS = [
   '✨ | The population of heaven has just decreased, because **{player1}** is back in the game!',
   '✨ | An ancient deity took pity on **{player1}** and breathed life back into their soul!',
   '✨ | **{player1}** consumed an emergency revival elixir and rejoined the massacre!',
+];
+
+export const TACTICIAN_EVADE_SCENARIOS = [
+  '📡 | **{player1}** detected **{player2}**\'s ambush in advance with their tactical radar and cleanly evaded!',
+  '🛰️ | **{player2}** struck **{player1}**\'s holographic decoy while the real Tactician slipped away!',
+];
+
+export const BERSERKER_SCENARIOS = [
+  '🩸 | **{player1}** entered a frenzied Berserker rage, brutally overpowering **{player2}**!',
+  '🪓 | **{player1}** ignored all pain and charged through **{player2}**\'s defenses with reckless fury!',
+];
+
+export const MEDIC_REVIVE_SCENARIOS = [
+  '💉 | **{player1}** suffered a fatal blow, but consumed their emergency stim to revive back into the battle!',
+  '🩺 | An automated defib unit jolted **{player1}** back to life just before elimination!',
+];
+
+export const THIEF_HEIST_SCENARIOS = [
+  '💰 | As **{player1}** fell, their pickpocket traps triggered, stealing 15% of **{player2}**\'s points!',
+  '🪙 | **{player1}** was eliminated by **{player2}**, but snatched a bounty of QP on the way down!',
+];
+
+export const QTE_SUPPLY_WEAPON_SCENARIOS = [
+  '📦 | **{player1}** unleashed their newly claimed prototype airdrop cannon on **{player2}**!',
+  '💥 | **{player1}** utilized their airdrop heavy artillery to obliterate **{player2}**!',
+];
+
+export const BOUNTY_HUNT_SCENARIOS = [
+  '🎯 | **{player1}** shut down **{player2}**\'s killstreak and cashed in a massive bounty reward!',
+];
+
+export const TEAM_UP_SCENARIOS = [
+  '🤝 | **{player1}** and **{player2}** formed a temporary alliance to flank and overpower **{player3}**!',
+  '👥 | **{player1}** distracted **{player3}** while **{player2}** delivered the fatal strike from behind!',
 ];

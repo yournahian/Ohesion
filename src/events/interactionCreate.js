@@ -45,6 +45,9 @@ import {
   createBattleMatch,
   joinBattleMatch,
   buildLobbyPayload,
+  buildClassSelectionPayload,
+  setPlayerArchetype,
+  resolveQTEAction,
   startBattleSimulation,
   scheduleCountdowns,
   getActiveMatch,
@@ -1631,12 +1634,13 @@ export default {
         const payload = buildLobbyPayload(result.match);
         await interaction.message.edit(payload).catch(() => null);
 
+        const signupMsg =
+          result.match.mode === 'interactive'
+            ? `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered).\n🛡️ Click Choose Archetype on the lobby message if you want to switch from default Tactician to Berserker, Medic, or Thief!`
+            : `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered).`;
+
         return interaction.editReply({
-          content:
-            `⚔️ **Welcome to the Arena!** You have entered Chaos Clash (**${result.totalJoined}** fighters currently registered).\n` +
-            (result.match.mode === 'interactive'
-              ? `🛡️ Click **Choose Archetype** on the lobby message if you want to switch from default Tactician to Berserker, Medic, or Thief!`
-              : ''),
+          content: signupMsg,
         });
       }
 
@@ -3438,6 +3442,30 @@ export default {
           .setFooter({ text: 'Questify Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
+      }
+
+      // --- SELECT: CHAOS CLASH ARCHETYPE SELECTION ---
+      if (selectId.startsWith('select_battle_class_')) {
+        const archetype = interaction.values[0];
+        const result = setPlayerArchetype(guildId, discordId, archetype);
+        if (!result.success) {
+          return interaction.reply({ content: result.message, ephemeral: true });
+        }
+
+        const match = getActiveMatch(guildId);
+        if (match) {
+          const lobbyPayload = buildLobbyPayload(match);
+          if (match.messageId) {
+            const channel = await interaction.client.channels.fetch(match.channelId).catch(() => null);
+            const msg = await channel?.messages?.fetch(match.messageId).catch(() => null);
+            if (msg) await msg.edit(lobbyPayload).catch(() => null);
+          }
+        }
+
+        return interaction.reply({
+          content: `🛡️ **Archetype Equipped:** You are now entered into the battle as a **${result.archetype}**!`,
+          ephemeral: true,
+        });
       }
 
       // --- SELECT: COSMETIC ITEM PURCHASE ---
