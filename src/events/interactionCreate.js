@@ -44,11 +44,9 @@ import {
 import {
   createBattleMatch,
   joinBattleMatch,
-  setPlayerArchetype,
   buildLobbyPayload,
-  buildClassSelectionPayload,
   startBattleSimulation,
-  resolveQTEAction,
+  scheduleCountdowns,
   getActiveMatch,
   getMatchById,
   parseBattleDuration,
@@ -2921,6 +2919,7 @@ export default {
           guildId,
           channelId: interaction.channelId,
           createdBy: discordId,
+          hostName: interaction.user.displayName || interaction.user.username,
           mode,
           signupDurationSec: durationSec,
           entryFee,
@@ -2936,6 +2935,9 @@ export default {
 
         const lobbyMsg = await interaction.channel.send(lobbyPayload);
         match.messageId = lobbyMsg.id;
+
+        // Schedule countdown reminders (60s, 30s, 15s)
+        scheduleCountdowns(match, interaction.client);
 
         // Schedule match start
         setTimeout(() => {

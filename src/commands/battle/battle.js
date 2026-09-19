@@ -3,6 +3,7 @@ import {
   createBattleMatch,
   buildLobbyPayload,
   startBattleSimulation,
+  scheduleCountdowns,
   getActiveMatch,
   parseBattleDuration,
 } from '../../modules/battle/battleEngine.js';
@@ -67,6 +68,7 @@ export default {
       guildId,
       channelId,
       createdBy: interaction.user.id,
+      hostName: interaction.user.displayName || interaction.user.username,
       mode,
       signupDurationSec,
       entryFee,
@@ -77,6 +79,9 @@ export default {
     const lobbyPayload = buildLobbyPayload(match);
     const lobbyMsg = await interaction.editReply(lobbyPayload);
     match.messageId = lobbyMsg.id;
+
+    // Schedule countdown alerts (60s, 30s, 15s)
+    scheduleCountdowns(match, interaction.client);
 
     // Start countdown timer to automatically launch the battle simulation
     setTimeout(() => {

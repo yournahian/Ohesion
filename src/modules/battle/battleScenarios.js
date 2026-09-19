@@ -1,70 +1,62 @@
 /**
- * Chaos Clash Battle Royale - Dynamic Action Scenarios
- * Placeholders:
- * - {player1}: The primary actor / instigator
- * - {player2}: The secondary actor / victim
- * - {player3}: The third actor / victim in temporary team-ups
+ * Chaos Clash Battle Royale - Rumble Royale-Style Dynamic Action Scenarios
+ * Icons:
+ * - 🤺 | Player vs Player Kills
+ * - ⚰️ | Accidental Deaths / Suicides / Natural Hazards
+ * - 🔮 | Neutral Events / Supplies / Ambient Lore
+ * - 🗡️ | Weapon Crafting / Preparations
+ * - ✨ | Revives / Second Chances
  */
 
-export const DUEL_SCENARIOS = [
-  '⚔️ {player1} outmaneuvered {player2} in a flurry of strikes, securing a clean elimination!',
-  '🎯 {player1} lined up a sniper shot from the high ground and picked off {player2}!',
-  '💥 {player1} ambushed {player2} behind an abandoned bunker with an explosive grenade!',
-  '⚡ {player1} executed a lightning-fast counter-attack, sending {player2} tumbling out of the arena!',
-  '🔥 {player1} engaged {player2} in a fierce duel and overwhelmed them with raw aggression!',
-  '🏹 {player1} loosed an arrow through the thick fog, catching {player2} right in their blind spot!',
-  '🛡️ {player1} parried {player2}\'s desperate lunge and delivered a decisive knockout blow!',
-  '🔪 {player1} crept from the shadows and backstabbed {player2} before they could even react!',
-  '💣 {player1} lured {player2} into a field of proximity mines. Boom!',
-  '🦾 {player1} landed a devastating grapple slam on {player2}, shattering their defenses!',
-  '🌪️ {player1} unleashed a whirlwind of strikes, eliminating {player2} in spectacular fashion!',
-  '🚀 {player1} fired a rocket barrage into {player2}\'s cover, blowing them out of the match!',
+export const DUEL_KILL_SCENARIOS = [
+  '🤺 | **{player1}** stabbed **{player2}** with a cucumber. What an unfortunate series of events!',
+  '🤺 | **{player1}** brutally murdered **{player2}**.',
+  '🤺 | **{player1}** backstabbed **{player2}** while they were sleeping! Unfortunate team.',
+  '🤺 | **{player1}** threw a flying toaster at **{player2}**, scoring a direct elimination!',
+  '🤺 | **{player1}** pushed **{player2}** off a steep cliff into the abyss!',
+  '🤺 | **{player1}** ambushed **{player2}** from behind a rock and eliminated them!',
+  '🤺 | **{player1}** outmaneuvered **{player2}** in a fierce duel and struck the final blow!',
+  '🤺 | **{player1}** lured **{player2}** into a pit of spiked traps. Rest in pieces!',
+  '🤺 | **{player1}** sniped **{player2}** from across the valley with pinpoint accuracy!',
+  '🤺 | **{player1}** hit **{player2}** with a frying pan. CLANG!',
+  '🤺 | **{player1}** drop-kicked **{player2}** into next Tuesday!',
+  '🤺 | **{player1}** challenged **{player2}** to a duel and crushed them decisively!',
 ];
 
-export const HAZARD_SCENARIOS = [
-  '🌋 {player1} misjudged their jump and plunged into a molten lava ravine!',
-  '⚡ A rogue lightning strike blasted {player1} into oblivion!',
-  '🪤 {player1} tripped an ancient pressure plate and got pierced by poisoned spikes!',
-  '☠️ The encroaching toxic storm collapsed upon {player1}, choking them out of the match!',
-  '💥 {player1} carelessly investigated an unexploded ordnance. It detonated instantly!',
-  '🌊 A flash flood swept across the canyon, washing {player1} off the battlefield!',
-  '🐺 A pack of cybernetic wolves ambushed {player1} while they were foraging for supplies!',
-  '🧗 {player1} slipped from a crumbling cliffside and fell to their doom!',
+export const HAZARD_DEATH_SCENARIOS = [
+  '⚰️ | **{player1}** tripped and cracked their skull on a brick.',
+  '⚰️ | **{player1}** swam in a river infested with leeches. We can all guess how that ended.',
+  '⚰️ | **{player1}** killed themself, lol.',
+  '⚰️ | **{player1}** ate brightly colored mushrooms that were definitely poisonous.',
+  '⚰️ | **{player1}** tried to do a backflip off a boulder and snapped their neck.',
+  '⚰️ | **{player1}** stepped on a sleeping bear. Big mistake.',
+  '⚰️ | **{player1}** fell into an abandoned well and couldn\'t climb out.',
+  '⚰️ | **{player1}** was struck by a random bolt of lightning!',
+  '⚰️ | **{player1}** forgot how to breathe for a moment.',
+  '⚰️ | **{player1}** choked on a dry piece of bread.',
 ];
 
-export const TEAM_UP_SCENARIOS = [
-  '🤝 **Temporary Alliance!** {player1} and {player2} formed a pact to flank and overpower {player3}!',
-  '👥 **Tag Team!** {player1} distracted {player3} while {player2} delivered the fatal strike from behind!',
-  '🔥 **Double Ambush!** {player1} and {player2} cornered {player3} in a ruined temple, leaving them no escape!',
-  '⚡ {player1} and {player2} cross-fired into {player3}\'s bunker, eliminating them in unison!',
-  '🎯 **United Force!** {player1} pinned down {player3} while {player2} called in an orbital strike!',
+export const NEUTRAL_SUPPLY_SCENARIOS = [
+  '🔮 | **{player1}** heard someone walking near them.',
+  '🔮 | **{player1}** received water supply. The fans love them!',
+  '🔮 | **{player1}** found a bush full of berries and had a wholesome snack.',
+  '🔮 | **{player1}** hid inside a hollow tree trunk and took a nap.',
+  '🔮 | **{player1}** looked at the night sky thinking of home.',
+  '🔮 | **{player1}** found clean bandages and treated their minor scrapes.',
+  '🔮 | **{player1}** accidentally sneezed and gave away their position, but nobody cared.',
+  '🔮 | **{player1}** scouted the high ground to plan their next move.',
 ];
 
-export const BERSERKER_SCENARIOS = [
-  '🩸 **Berserker Rage!** {player1} entered a frenzied bloodlust, brutally overpowering {player2}!',
-  '🪓 {player1} ignored all pain and charged through {player2}\'s defenses, crushing them with reckless fury!',
+export const WEAPON_PREP_SCENARIOS = [
+  '🗡️ | **{player1}** sharpened some bone into a dagger!',
+  '🗡️ | **{player1}** fashioned a spear out of a sturdy branch!',
+  '🗡️ | **{player1}** found a rusty iron broadsword buried in the dirt!',
+  '🗡️ | **{player1}** polished their armor and prepared for the next clash.',
+  '🗡️ | **{player1}** crafted crude arrows from bird feathers and reeds.',
 ];
 
-export const MEDIC_REVIVE_SCENARIOS = [
-  '💉 **Self-Revive Activated!** {player1} suffered a fatal blow, but consumed their emergency stim to revive back into the battle!',
-  '🩺 **Miracle Recovery!** An automated defib unit jolted {player1} back to life just before elimination!',
-];
-
-export const TACTICIAN_EVADE_SCENARIOS = [
-  '📡 **Tactical Radar!** {player1} detected {player2}\'s ambush in advance and cleanly evaded the attack!',
-  '🛰️ **Holographic Decoy!** {player2} struck {player1}\'s holographic decoy while the real Tactician slipped away!',
-];
-
-export const THIEF_HEIST_SCENARIOS = [
-  '💰 **Dead Man\'s Heist!** As {player1} fell, their pickpocket traps triggered, stealing 15% of {player2}\'s points!',
-  '🪙 **Parting Gift!** {player1} was eliminated by {player2}, but snatched a bounty of QP on the way down!',
-];
-
-export const QTE_SUPPLY_WEAPON_SCENARIOS = [
-  '📦 **Supply Crate Power!** {player1} unleashed their newly claimed prototype plasma cannon on {player2}!',
-  '💥 {player1} utilized their airdrop heavy artillery to obliterate {player2}!',
-];
-
-export const BOUNTY_HUNT_SCENARIOS = [
-  '🎯 **Bounty Claimed!** {player1} shut down {player2}\'s killstreak and cashed in a massive bounty reward!',
+export const REVIVE_SCENARIOS = [
+  '✨ | The population of heaven has just decreased, because **{player1}** is back in the game!',
+  '✨ | An ancient deity took pity on **{player1}** and breathed life back into their soul!',
+  '✨ | **{player1}** consumed an emergency revival elixir and rejoined the massacre!',
 ];
