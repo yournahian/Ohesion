@@ -237,14 +237,13 @@ export default {
       );
     }
 
-    if (btnFilter !== 'hide all' && btnFilter !== 'no buttons') {
-      actionRow.addComponents(
-        new ButtonBuilder()
-          .setLabel('View on X')
-          .setStyle(ButtonStyle.Link)
-          .setURL(cleanUrl)
-      );
-    }
+    // Always include View on X link button
+    actionRow.addComponents(
+      new ButtonBuilder()
+        .setLabel('View on X')
+        .setStyle(ButtonStyle.Link)
+        .setURL(cleanUrl)
+    );
 
     const hasAnyAction = includeLike || includeRt || includeComment;
 

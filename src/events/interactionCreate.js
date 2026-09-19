@@ -218,42 +218,57 @@ function processSnippetRequirements(customText, guild, tweetUsername) {
   for (const rawLine of lines) {
     let line = rawLine;
 
-    // 1. Resolve Discord roles in the line: e.g. @Verified or @Socials
+    // 1. Explicit Twitter/X URL conversion: e.g. https://x.com/username -> [@username](https://x.com/username)
+    line = line.replace(/https?:\/\/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,25})(?:\/[^\s)]*)?/gi, '[@$1](https://x.com/$1)');
+
+    // 2. Explicit prefix conversion:
+    // x:@handle or twitter:@handle -> [@handle](https://x.com/handle)
+    line = line.replace(/\b(?:x|twitter):@?([a-zA-Z0-9_]{1,25})\b/gi, '[@$1](https://x.com/$1)');
+
+    // role:@roleName or discord:@roleName -> resolve to role mention
+    line = line.replace(/\b(?:role|discord):@?([a-zA-Z0-9_\- ]+?)(?=[,.:;!?)]|$)/gi, (match, roleQuery) => {
+      const cleanQ = roleQuery.trim().toLowerCase();
+      const r = roles.find((role) => role.name.toLowerCase() === cleanQ || role.id === cleanQ);
+      return r ? `<@&${r.id}>` : match;
+    });
+
+    // 3. Smart contextual X handle detection:
+    // When preceded by action verbs (follow, sub, subscribe, check, visit, repost, rt, support)
+    // ALWAYS treat as X account handle, even if a Discord role with the same name exists!
+    line = line.replace(/\b(follow(?:ing)?|sub(?:scribe)?|check(?:\s+out)?|visit|repost|rt|support)\s+@([a-zA-Z0-9_]{1,25})\b/gi, '$1 [@$2](https://x.com/$2)');
+
+    // Support "follow the account" or "follow account" or "follow x"
+    line = line.replace(/\bfollow(?:\s+the)?\s+(?:account|x(?:\s+acc(?:ount)?)?)\b/gi, `follow [@${tweetUsername}](https://x.com/${tweetUsername})`);
+
+    // 4. Resolve Discord roles for remaining @mentions:
     for (const r of sortedRoles) {
       const escapedRole = r.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const roleRegex = new RegExp(`@${escapedRole}(?=[\\s,.:;!?)]|$)`, 'gi');
+      // Match @RoleName only if NOT already part of a markdown link or Discord mention
+      const roleRegex = new RegExp(`(?<!\\[|/|&|<)@${escapedRole}(?=[\\s,.:;!?)]|$)`, 'gi');
       if (roleRegex.test(line)) {
         line = line.replace(roleRegex, `<@&${r.id}>`);
       }
     }
 
-    // 2. Convert explicit Twitter/X URLs into formatted links: [@handle](https://x.com/handle)
-    line = line.replace(/https?:\/\/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,25})(?:\/[^\s)]*)?/gi, '[@$1](https://x.com/$1)');
-
-    // 3. Link Twitter handle mentions (e.g. @goldfishggbr) if not a Discord mention or role
-    line = line.replace(/(^|[^\w<@&])@([a-zA-Z0-9_]{1,25})(?=[^\w]|$)/g, (match, prefix, handle) => {
+    // 5. Any remaining @handle (that isn't a role, link, or mention)
+    line = line.replace(/(^|[^\w<@&/])@([a-zA-Z0-9_]{1,25})(?=[^\w]|$)/g, (match, prefix, handle) => {
       const lowerHandle = handle.toLowerCase();
-      // If it's @everyone or @here, leave as native mention
       if (lowerHandle === 'everyone' || lowerHandle === 'here') {
         return `${prefix}@${handle}`;
       }
-      // If it matches a guild role name, convert to role mention
+      if (lowerHandle === 'account' || lowerHandle === 'x') {
+        return `${prefix}[@${tweetUsername}](https://x.com/${tweetUsername})`;
+      }
+      // Check if it matches a guild role
       const matchedRole = roles.find((r) => r.name.toLowerCase() === lowerHandle);
       if (matchedRole) {
         return `${prefix}<@&${matchedRole.id}>`;
       }
-      // If it says @account or @x, link to the tweet's author
-      if (lowerHandle === 'account' || lowerHandle === 'x') {
-        return `${prefix}[@${tweetUsername}](https://x.com/${tweetUsername})`;
-      }
-      // Otherwise, link to the Twitter / X profile
+      // Otherwise, default to X profile link
       return `${prefix}[@${handle}](https://x.com/${handle})`;
     });
 
-    // Also support "follow the account" or "follow account" or "follow x"
-    line = line.replace(/\bfollow(?:\s+the)?\s+(?:account|x(?:\s+acc(?:ount)?)?)\b/gi, `follow [@${tweetUsername}](https://x.com/${tweetUsername})`);
-
-    // 4. Check if this line is purely a role/tag mention (e.g. "@Socials" or "<@&12345>" or "@everyone")
+    // 6. Check if this line is purely a role/tag mention (e.g. "@Socials" or "<@&12345>" or "@everyone")
     const isPureTagLine = /^(?:<@&?\d+>|@everyone|@here|\s+)+$/.test(line);
 
     if (isPureTagLine) {
@@ -352,6 +367,15 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
+        const ctaInput = new TextInputBuilder()
+          .setCustomId('input_call_to_action')
+          .setLabel('Headline / Call to Action (Optional)')
+          .setValue('Engage to collect your points')
+          .setPlaceholder('e.g. Engage to collect your points')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(60)
+          .setRequired(false);
+
         const textInput = new TextInputBuilder()
           .setCustomId('input_custom_text')
           .setLabel('Custom Snippet & Requirements (Optional)')
@@ -363,6 +387,7 @@ export default {
           new ActionRowBuilder().addComponents(urlInput),
           new ActionRowBuilder().addComponents(pointsHoursInput),
           new ActionRowBuilder().addComponents(optionsInput),
+          new ActionRowBuilder().addComponents(ctaInput),
           new ActionRowBuilder().addComponents(textInput)
         );
 
@@ -2026,6 +2051,14 @@ export default {
 
         const customText = interaction.fields.getTextInputValue('input_custom_text') || '';
 
+        let ctaText = 'Engage to collect your points';
+        try {
+          const rawCta = interaction.fields.getTextInputValue('input_call_to_action');
+          if (rawCta && rawCta.trim().length > 0) {
+            ctaText = rawCta.trim();
+          }
+        } catch (_) {}
+
         const parsed = parseTweetUrl(rawUrl);
         if (!parsed) {
           return interaction.editReply({
@@ -2193,14 +2226,15 @@ export default {
                 .setStyle(ButtonStyle.Secondary)
             );
           }
-
-          actionRow.addComponents(
-            new ButtonBuilder()
-              .setLabel('View on X')
-              .setStyle(ButtonStyle.Link)
-              .setURL(cleanUrl)
-          );
         }
+
+        // Always include "View on X" link button so users can open the post on X
+        actionRow.addComponents(
+          new ButtonBuilder()
+            .setLabel('View on X')
+            .setStyle(ButtonStyle.Link)
+            .setURL(cleanUrl)
+        );
 
         // Process custom snippet with Twitter linking and role tagging
         const processedSnippet = processSnippetRequirements(customText, guild, username);
@@ -2208,7 +2242,7 @@ export default {
         // Build clean message content
         let messageContent =
           `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-          `**Engage to collect your points**\n` +
+          `**${ctaText}**\n` +
           `Expires <t:${expireTimestampSec}:R>`;
 
         if (processedSnippet.snippetBody) {
