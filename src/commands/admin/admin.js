@@ -133,9 +133,17 @@ export default {
         .setStyle(ButtonStyle.Secondary)
     );
 
+    const row3 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('admin_create_poll')
+        .setLabel('Create Poll')
+        .setEmoji('📊')
+        .setStyle(ButtonStyle.Success)
+    );
+
     return interaction.editReply({
       embeds: [adminEmbed],
-      components: [row1, row2],
+      components: [row1, row2, row3],
     });
   },
 };

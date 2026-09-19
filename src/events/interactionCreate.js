@@ -34,6 +34,13 @@ import {
   submitLiveAnswer,
   startLiveQuiz,
 } from '../utils/liveQuizEngine.js';
+import {
+  buildPollPayload,
+  savePoll,
+  getPoll,
+  castPollVote,
+  hasUserVoted,
+} from '../utils/pollManager.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -249,6 +256,59 @@ export default {
           new ActionRowBuilder().addComponents(answerInput),
           new ActionRowBuilder().addComponents(rewardsInput),
           new ActionRowBuilder().addComponents(durationInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN CREATE POLL MODAL (100% UI-DRIVEN) ---
+      if (customId === 'admin_create_poll') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_create_poll')
+          .setTitle('📊 Create Community Poll');
+
+        const questionInput = new TextInputBuilder()
+          .setCustomId('input_poll_question')
+          .setLabel('Poll Question / Topic')
+          .setPlaceholder('e.g. Which blockchain should we expand to next?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const optionsInput = new TextInputBuilder()
+          .setCustomId('input_poll_options')
+          .setLabel('Options (2 to 5, one per line)')
+          .setPlaceholder('Base\nSolana\nEthereum\nPolygon')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const durationInput = new TextInputBuilder()
+          .setCustomId('input_poll_duration')
+          .setLabel('Duration (e.g. 30m, 2h, 24h, 3d)')
+          .setValue('24h')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const rewardInput = new TextInputBuilder()
+          .setCustomId('input_poll_reward')
+          .setLabel('Voting Reward: QP & XP (Optional)')
+          .setValue('10, 5')
+          .setPlaceholder('e.g. 10, 5 (QP, XP per vote) or 0, 0')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const tagInput = new TextInputBuilder()
+          .setCustomId('input_poll_tag')
+          .setLabel('Ping Role / Server Tag (Optional)')
+          .setPlaceholder('e.g. @Socials, @everyone, or role name')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(questionInput),
+          new ActionRowBuilder().addComponents(optionsInput),
+          new ActionRowBuilder().addComponents(durationInput),
+          new ActionRowBuilder().addComponents(rewardInput),
+          new ActionRowBuilder().addComponents(tagInput)
         );
 
         return interaction.showModal(modal);
@@ -1343,6 +1403,49 @@ export default {
           return interaction.editReply({ embeds: [lossEmbed] });
         }
       }
+
+      // --- N. COMMUNITY POLL VOTE BUTTON ---
+      if (customId.startsWith('poll_vote_')) {
+        const rest = customId.replace('poll_vote_', '');
+        const lastUnder = rest.lastIndexOf('_');
+        const pollId = rest.substring(0, lastUnder);
+        const optionIndex = parseInt(rest.substring(lastUnder + 1), 10);
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await castPollVote({
+          pollId,
+          guildId,
+          discordId,
+          optionIndex,
+          client: interaction.client,
+        });
+
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        // Update the live poll card with new vote count and percentage bars
+        const updatedPayload = buildPollPayload(result.poll);
+        await interaction.message.edit(updatedPayload).catch(() => null);
+
+        let rewardText = '';
+        if (result.pointsAwarded > 0 || result.xpAwarded > 0) {
+          rewardText = `\n\n🪙 **Rewards Earned:** +${result.pointsAwarded} QP & +${result.xpAwarded} XP\n` +
+            `💰 **Current Balance:** ${result.newPoints.toLocaleString()} QP (Level ${result.newLevel})`;
+        }
+
+        const voteEmbed = new EmbedBuilder()
+          .setColor(0x00b4d8)
+          .setTitle('✅ Vote Recorded!')
+          .setDescription(
+            `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
+            `Thank you for participating in the community vote!`
+          )
+          .setFooter({ text: 'Questify Community Polls' });
+
+        return interaction.editReply({ embeds: [voteEmbed] });
+      }
     }
 
     // ==========================================
@@ -1363,6 +1466,7 @@ export default {
         'modal_reward_member',
         'modal_create_quiz',
         'modal_setup_live_quiz',
+        'modal_create_poll',
       ];
       if (
         adminModals.includes(modalId) ||
@@ -2254,6 +2358,115 @@ export default {
 
         const deckPayload = buildSetupDeck(session);
         return interaction.editReply(deckPayload);
+      }
+
+      // --- MODAL: CREATE COMMUNITY POLL ---
+      if (modalId === 'modal_create_poll') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const question = interaction.fields.getTextInputValue('input_poll_question').trim();
+        const rawOptions = interaction.fields.getTextInputValue('input_poll_options').trim();
+        const durationStr = interaction.fields.getTextInputValue('input_poll_duration').trim();
+        let rewardStr = '';
+        try {
+          rewardStr = interaction.fields.getTextInputValue('input_poll_reward') || '';
+        } catch (_) {}
+        let tagStr = '';
+        try {
+          tagStr = interaction.fields.getTextInputValue('input_poll_tag') || '';
+        } catch (_) {}
+
+        // Parse options (one per line or comma)
+        const options = (rawOptions.includes('\n') ? rawOptions.split('\n') : rawOptions.split(','))
+          .map((o) => o.trim())
+          .filter((o) => o.length > 0);
+
+        if (options.length < 2 || options.length > 5) {
+          return interaction.editReply({
+            content: '❌ **Invalid Options:** Please provide between 2 and 5 poll options (one per line).',
+          });
+        }
+
+        // Parse duration (supporting minutes, hours, days)
+        let durationMs = 24 * 60 * 60 * 1000;
+        const parsedMs = parseDuration(durationStr);
+        if (parsedMs) {
+          durationMs = parsedMs;
+        } else {
+          const num = parseInt(durationStr, 10);
+          if (!isNaN(num) && num > 0) durationMs = num * 60 * 60 * 1000;
+        }
+        const expiresAt = new Date(Date.now() + durationMs).toISOString();
+
+        // Parse rewards
+        let rewardPoints = 0;
+        let rewardXp = 0;
+        if (rewardStr) {
+          const parts = rewardStr.split(/[,|\s]+/).filter(Boolean);
+          if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
+          if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
+        }
+
+        // Resolve tag
+        let tagMention = '';
+        if (tagStr && tagStr.trim()) {
+          const t = tagStr.trim();
+          if (t === '@everyone' || t === '@here') {
+            tagMention = t;
+          } else if (/^<@&?\d+>$/.test(t)) {
+            tagMention = t;
+          } else if (/^\d{17,20}$/.test(t)) {
+            tagMention = `<@&${t}>`;
+          } else {
+            const guild =
+              interaction.guild ||
+              (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+            const cleanName = t.replace(/^@/, '').toLowerCase();
+            const role = guild?.roles?.cache?.find(
+              (r) => r.name.toLowerCase() === cleanName
+            );
+            if (role) {
+              tagMention = `<@&${role.id}>`;
+            } else {
+              tagMention = t.startsWith('@') ? t : `@${t}`;
+            }
+          }
+        }
+
+        const pollId = 'pol_' + Date.now().toString(36);
+        const pollData = {
+          poll_id: pollId,
+          guild_id: guildId,
+          channel_id: interaction.channelId,
+          message_id: null,
+          question,
+          options,
+          reward_points: rewardPoints,
+          reward_xp: rewardXp,
+          expires_at: expiresAt,
+          created_by: discordId,
+          is_active: true,
+        };
+
+        const payload = buildPollPayload(pollData);
+        if (tagMention) {
+          payload.content = tagMention;
+          payload.allowedMentions = { parse: ['roles', 'users', 'everyone'] };
+        }
+
+        const sentMsg = await interaction.channel.send(payload);
+        pollData.message_id = sentMsg.id;
+        await savePoll(pollData);
+
+        return interaction.editReply({
+          content:
+            `✅ **Community Poll Launched Successfully!**\n\n` +
+            `• **Topic:** ${question}\n` +
+            `• **Options:** ${options.length} choices\n` +
+            `• **Reward:** +${rewardPoints} QP & +${rewardXp} XP per vote\n` +
+            `• **Duration:** Ends <t:${Math.floor(new Date(expiresAt).getTime() / 1000)}:R>\n\n` +
+            `Members can cast their vote using the interactive buttons!`,
+        });
       }
     }
 
