@@ -496,16 +496,29 @@ export default {
             });
           }
 
-          const filesList = [];
-          if (deliverables.masterMp3Path) filesList.push('🎵 `Master_Podcast_Mix.mp3` (Combined Master Audio)');
-          if (deliverables.stemsZipPath) filesList.push('🗂️ `MultiTrack_Stems.zip` (Isolated Speaker Stems for DAWs)');
-          if (deliverables.scriptPath) filesList.push('📝 `Script_Transcript.md` (Full Chronological Dialogue Script)');
-          if (deliverables.notesPath) filesList.push('📋 `Meeting_Notes.md` (Action Items & Timestamped Timeline)');
+          const attachedFilesList = [];
+          if (deliverables.webDownloads && deliverables.webDownloads.length > 0) {
+            for (const item of deliverables.webDownloads) {
+              const icon = item.filename.endsWith('.mp3')
+                ? '🎵'
+                : item.filename.endsWith('.zip')
+                ? '🗂️'
+                : item.filename.includes('Script')
+                ? '📝'
+                : '📋';
 
-          if (filesList.length > 0) {
+              if (item.isOversized) {
+                attachedFilesList.push(`${icon} **${item.displayName}** (\`${item.sizeFormatted}\`) — *Exceeds Discord 25MB limit (Direct Web Download)*`);
+              } else {
+                attachedFilesList.push(`${icon} \`${item.displayName}\` (\`${item.sizeFormatted}\`)`);
+              }
+            }
+          }
+
+          if (attachedFilesList.length > 0) {
             embed.addFields({
-              name: '📦 Deliverables Attached',
-              value: filesList.join('\n'),
+              name: '📦 Session Deliverables',
+              value: attachedFilesList.join('\n'),
             });
           } else {
             embed.addFields({
@@ -514,10 +527,47 @@ export default {
             });
           }
 
+          if (deliverables.largeFiles && deliverables.largeFiles.length > 0) {
+            embed.addFields({
+              name: '🌐 High-Capacity Web Downloads (>25MB)',
+              value:
+                'The following files exceeded Discord\'s 25MB attachment limit. You can download them directly at full speed:\n' +
+                deliverables.largeFiles
+                  .map((f) => `• [📥 **${f.displayName}** (${f.sizeFormatted})](${f.downloadUrl})`)
+                  .join('\n'),
+            });
+          }
+
+          const actionRows = [];
+          const downloadButtons = [];
+
+          // Create link buttons for audio & zip deliverables (up to 5 buttons max)
+          if (deliverables.webDownloads && deliverables.webDownloads.length > 0) {
+            const downloadsForButtons = deliverables.webDownloads.filter(
+              (f) => f.filename.endsWith('.mp3') || f.filename.endsWith('.zip')
+            );
+            for (const file of downloadsForButtons.slice(0, 5)) {
+              const label = file.filename.endsWith('.zip')
+                ? `📥 Stems ZIP (${file.sizeFormatted})`
+                : `🎵 Master MP3 (${file.sizeFormatted})`;
+
+              downloadButtons.push(
+                new ButtonBuilder()
+                  .setLabel(label.slice(0, 80))
+                  .setStyle(ButtonStyle.Link)
+                  .setURL(file.downloadUrl)
+              );
+            }
+          }
+
+          if (downloadButtons.length > 0) {
+            actionRows.push(new ActionRowBuilder().addComponents(downloadButtons));
+          }
+
           return interaction.editReply({
             content: `✅ Recording session concluded! Here are your production deliverables:`,
             embeds: [embed],
-            components: [],
+            components: actionRows,
             files: deliverables.filesToAttach,
           });
         } catch (err) {

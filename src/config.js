@@ -17,4 +17,5 @@ export const config = {
   groqApiKey: process.env.GROQ_API_KEY || process.env.GROP_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
+  baseUrl: (process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL || 'https://questify-bot-7i0l.onrender.com').replace(/\/+$/, ''),
 };

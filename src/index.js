@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,15 +10,58 @@ import { loadEvents } from './handlers/eventHandler.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Lightweight HTTP server for Render / hosting platform health checks
+// HTTP server for Render health checks and large recording downloads (>25MB)
 const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Questify Bot is active and healthy!\n');
+    try {
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+      // Serve recording downloads: /download/:sessionId/:filename
+      if (parsedUrl.pathname.startsWith('/download/')) {
+        const segments = parsedUrl.pathname.split('/').filter(Boolean);
+        if (segments.length >= 3) {
+          const sessionId = segments[1].replace(/[^a-zA-Z0-9_-]/g, '');
+          const rawFilename = decodeURIComponent(segments.slice(2).join('/'));
+          const safeFilename = path.basename(rawFilename);
+          const recordingsDir = path.join(__dirname, 'data', 'recordings');
+          const targetPath = path.join(recordingsDir, sessionId, safeFilename);
+
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+            const ext = path.extname(safeFilename).toLowerCase();
+            const mimeTypes = {
+              '.mp3': 'audio/mpeg',
+              '.wav': 'audio/wav',
+              '.zip': 'application/zip',
+              '.md': 'text/markdown; charset=utf-8',
+              '.txt': 'text/plain; charset=utf-8',
+            };
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+            const stat = fs.statSync(targetPath);
+
+            res.writeHead(200, {
+              'Content-Type': contentType,
+              'Content-Length': stat.size,
+              'Content-Disposition': `attachment; filename="${safeFilename}"`,
+            });
+            return fs.createReadStream(targetPath).pipe(res);
+          } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            return res.end('404: Recording file not found or expired.\n');
+          }
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('Questify Bot is active and healthy!\n');
+    } catch (err) {
+      console.error('[HTTP SERVER ERROR]:', err);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Internal Server Error\n');
+    }
   })
   .listen(PORT, () => {
-    console.log(`[HEALTH] Health check server listening on port ${PORT}`);
+    console.log(`[HEALTH] Health check & Download server listening on port ${PORT}`);
   });
 
 // Initialize Discord Client with required Intents

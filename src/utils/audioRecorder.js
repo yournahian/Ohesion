@@ -19,6 +19,7 @@ import {
   generateMeetingNotesAndTimelines,
   formatTimestamp,
 } from './callTranscriber.js';
+import { config } from '../config.js';
 
 const require = createRequire(import.meta.url);
 const prism = require('prism-media');
@@ -293,7 +294,7 @@ async function mixMasterTrack(inputWavs, outputMp3Path) {
     if (inputWavs.length === 1) {
       ffmpeg(inputWavs[0])
         .audioCodec('libmp3lame')
-        .audioBitrate('192k')
+        .audioBitrate('128k')
         .save(outputMp3Path)
         .on('end', () => resolve(outputMp3Path))
         .on('error', (err) => reject(err));
@@ -318,7 +319,7 @@ async function mixMasterTrack(inputWavs, outputMp3Path) {
         },
       ])
       .audioCodec('libmp3lame')
-      .audioBitrate('192k')
+      .audioBitrate('128k')
       .save(outputMp3Path)
       .on('end', () => resolve(outputMp3Path))
       .on('error', (err) => reject(err));
@@ -433,6 +434,14 @@ export async function stopRecording(guildId) {
     aiProvider: getActiveAiProvider(),
   };
 
+  const DISCORD_MAX_BYTES = 24.5 * 1024 * 1024; // 24.5MB threshold for standard Discord bot upload limits
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   const deliverables = {
     sessionMeta,
     masterMp3Path: null,
@@ -442,7 +451,35 @@ export async function stopRecording(guildId) {
     dialogueScript: '',
     meetingNotesMarkdown: '',
     filesToAttach: [],
+    largeFiles: [],
+    webDownloads: [],
   };
+
+  function registerDeliverable(filePath, displayName) {
+    if (!filePath || !fs.existsSync(filePath)) return;
+    const stat = fs.statSync(filePath);
+    const filename = path.basename(filePath);
+    const downloadUrl = `${config.baseUrl}/download/${session.sessionId}/${encodeURIComponent(filename)}`;
+    const isOversized = stat.size > DISCORD_MAX_BYTES;
+
+    const fileMeta = {
+      filename,
+      displayName,
+      filePath,
+      sizeBytes: stat.size,
+      sizeFormatted: formatFileSize(stat.size),
+      downloadUrl,
+      isOversized,
+    };
+
+    deliverables.webDownloads.push(fileMeta);
+
+    if (isOversized) {
+      deliverables.largeFiles.push(fileMeta);
+    } else {
+      deliverables.filesToAttach.push(filePath);
+    }
+  }
 
   // 1. Audio Processing (mix master track)
   const masterMp3Path = path.join(session.sessionDir, 'Master_Podcast_Mix.mp3');
@@ -513,22 +550,22 @@ export async function stopRecording(guildId) {
     }
   }
 
-  // 4. Assemble files to attach to Discord message
+  // 4. Assemble files: files <= 24.5MB attached directly, files > 24.5MB served via web download
   if (session.mode === 'both' || session.mode === 'audio') {
-    if (deliverables.masterMp3Path && fs.existsSync(deliverables.masterMp3Path)) {
-      deliverables.filesToAttach.push(deliverables.masterMp3Path);
+    if (deliverables.masterMp3Path) {
+      registerDeliverable(deliverables.masterMp3Path, 'Master_Podcast_Mix.mp3');
     }
-    if (deliverables.stemsZipPath && fs.existsSync(deliverables.stemsZipPath)) {
-      deliverables.filesToAttach.push(deliverables.stemsZipPath);
+    if (deliverables.stemsZipPath) {
+      registerDeliverable(deliverables.stemsZipPath, 'MultiTrack_Stems.zip');
     }
   }
 
   if (session.mode === 'both' || session.mode === 'script') {
-    if (deliverables.scriptPath && fs.existsSync(deliverables.scriptPath)) {
-      deliverables.filesToAttach.push(deliverables.scriptPath);
+    if (deliverables.scriptPath) {
+      registerDeliverable(deliverables.scriptPath, 'Script_Transcript.md');
     }
-    if (deliverables.notesPath && fs.existsSync(deliverables.notesPath)) {
-      deliverables.filesToAttach.push(deliverables.notesPath);
+    if (deliverables.notesPath) {
+      registerDeliverable(deliverables.notesPath, 'Meeting_Notes.md');
     }
 
     // If script only mode: clean up raw heavy WAV and MP3 files to conserve disk space
