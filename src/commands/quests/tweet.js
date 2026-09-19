@@ -17,16 +17,22 @@ const tweetCommand = {
       option.setName('expire_hours').setDescription('Hours until engagement quest expires (default: 24)').setRequired(false).setMinValue(1).setMaxValue(168)
     )
     .addStringOption(option =>
-      option.setName('buttons').setDescription('Buttons to include (e.g. "like, rt, comment" or "like, rt" or "like")').setRequired(false)
+      option.setName('buttons').setDescription('Buttons to include (e.g. "like, rt, comment" or "like, rt" or "none")').setRequired(false)
+    )
+    .addBooleanOption(option =>
+      option.setName('show_image').setDescription('Show tweet media thumbnail & image display? (default: true)').setRequired(false)
+    )
+    .addStringOption(option =>
+      option.setName('tag').setDescription('Server role or member tag to ping (e.g. @Socials, @everyone, or role name)').setRequired(false)
     )
     .addChannelOption(option =>
       option.setName('channel').setDescription('Channel to broadcast the tweet quest').setRequired(false)
     )
     .addRoleOption(option =>
-      option.setName('role_mention').setDescription('Role to ping (e.g. @Socials)').setRequired(false)
+      option.setName('role_mention').setDescription('Role to ping (alternative to tag)').setRequired(false)
     )
     .addStringOption(option =>
-      option.setName('custom_text').setDescription('Custom description or snippet of the tweet').setRequired(false)
+      option.setName('custom_text').setDescription('Custom description / requirements (formatted Engage.io style)').setRequired(false)
     ),
 };
 

@@ -10,6 +10,7 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   PermissionFlagsBits,
+  MessageFlags,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadata } from '../utils/twitter.js';
@@ -125,40 +126,41 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        const pointsInput = new TextInputBuilder()
-          .setCustomId('input_points')
-          .setLabel('Points Per Action (Like, RT, Comment)')
-          .setValue('25')
+        const pointsHoursInput = new TextInputBuilder()
+          .setCustomId('input_points_hours')
+          .setLabel('Points & Duration (QP, Hours)')
+          .setValue('25, 24h')
+          .setPlaceholder('e.g. 25, 24h (Points, Expiration in hours)')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        const hoursInput = new TextInputBuilder()
-          .setCustomId('input_expire_hours')
-          .setLabel('Duration in Hours')
-          .setValue('24')
+        const tagInput = new TextInputBuilder()
+          .setCustomId('input_tag')
+          .setLabel('Ping Role / Server Tag (Optional)')
+          .setPlaceholder('e.g. @Socials, @everyone, or role name')
           .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+          .setRequired(false);
 
-        const buttonsInput = new TextInputBuilder()
-          .setCustomId('input_buttons')
-          .setLabel('Buttons (Like, RT, Comment, or "none")')
-          .setValue('Like, RT, Comment')
-          .setPlaceholder('e.g. Like, RT or type "none" for no buttons')
+        const optionsInput = new TextInputBuilder()
+          .setCustomId('input_options')
+          .setLabel('Thumbnail / Image & Action Buttons')
+          .setValue('Image: Yes | Buttons: Like, RT, Comment')
+          .setPlaceholder('Image: Yes/No | Buttons: Like, RT, Comment (or "none")')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
         const textInput = new TextInputBuilder()
           .setCustomId('input_custom_text')
-          .setLabel('Custom Tweet Snippet (Optional)')
-          .setPlaceholder('Leave blank to auto-fetch from X')
+          .setLabel('Custom Snippet / Requirements (Engage.io)')
+          .setPlaceholder('e.g. Account must have 100 followers\nMust follow @account')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(false);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(urlInput),
-          new ActionRowBuilder().addComponents(pointsInput),
-          new ActionRowBuilder().addComponents(hoursInput),
-          new ActionRowBuilder().addComponents(buttonsInput),
+          new ActionRowBuilder().addComponents(pointsHoursInput),
+          new ActionRowBuilder().addComponents(tagInput),
+          new ActionRowBuilder().addComponents(optionsInput),
           new ActionRowBuilder().addComponents(textInput)
         );
 
@@ -1379,13 +1381,41 @@ export default {
       if (modalId === 'modal_post_tweet') {
         await interaction.deferReply({ ephemeral: true });
 
-        const rawUrl = interaction.fields.getTextInputValue('input_tweet_url');
-        const pointsStr = interaction.fields.getTextInputValue('input_points');
-        const hoursStr = interaction.fields.getTextInputValue('input_expire_hours');
-        let buttonsStr = '';
+        let rawUrl = '';
         try {
-          buttonsStr = interaction.fields.getTextInputValue('input_buttons') || '';
+          rawUrl = interaction.fields.getTextInputValue('input_tweet_url');
         } catch (_) {}
+
+        let pointsHoursStr = '';
+        try {
+          pointsHoursStr = interaction.fields.getTextInputValue('input_points_hours') || '';
+        } catch (_) {}
+
+        let rawPoints = '';
+        try {
+          rawPoints = interaction.fields.getTextInputValue('input_points') || '';
+        } catch (_) {}
+
+        let rawHours = '';
+        try {
+          rawHours = interaction.fields.getTextInputValue('input_expire_hours') || '';
+        } catch (_) {}
+
+        let tagStr = '';
+        try {
+          tagStr = interaction.fields.getTextInputValue('input_tag') || '';
+        } catch (_) {}
+
+        let optionsStr = '';
+        try {
+          optionsStr = interaction.fields.getTextInputValue('input_options') || '';
+        } catch (_) {}
+        if (!optionsStr) {
+          try {
+            optionsStr = interaction.fields.getTextInputValue('input_buttons') || '';
+          } catch (_) {}
+        }
+
         const customText = interaction.fields.getTextInputValue('input_custom_text') || '';
 
         const parsed = parseTweetUrl(rawUrl);
@@ -1396,42 +1426,92 @@ export default {
         }
 
         const { username, tweetId, cleanUrl } = parsed;
-        const points = parseInt(pointsStr, 10) || 25;
-        const expireHours = parseInt(hoursStr, 10) || 24;
+
+        let points = 25;
+        let expireHours = 24;
+        if (pointsHoursStr) {
+          const parts = pointsHoursStr.split(/[,|\s]+/).filter(Boolean);
+          if (parts[0]) points = parseInt(parts[0], 10) || 25;
+          if (parts[1]) expireHours = parseInt(parts[1].replace(/h/i, ''), 10) || 24;
+        } else {
+          if (rawPoints) points = parseInt(rawPoints, 10) || 25;
+          if (rawHours) expireHours = parseInt(rawHours, 10) || 24;
+        }
 
         // Fetch tweet metadata with media image/thumbnail and author avatar
         const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
         const authorDisplayName = tweetMeta?.authorName || `@${username}`;
-        const tweetBody = customText || tweetMeta?.text || 'Engage with this post on X to earn points!';
+        const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
 
         const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
         const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-        const tweetEmbed = new EmbedBuilder()
-          .setColor(0x1da1f2)
-          .setAuthor({
-            name: `${authorDisplayName} (@${username})`,
-            iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
-            url: cleanUrl,
-          })
-          .setTitle(`@${username} tweeted !`)
-          .setURL(cleanUrl)
-          .setDescription(tweetBody)
-          .setFooter({
-            text: 'Powered by Questify Gamification',
-            iconURL: interaction.client.user.displayAvatarURL(),
-          })
-          .setTimestamp();
+        // Determine if thumbnail/image display is enabled (Default: true unless explicitly set to no/off/false)
+        let showImage = true;
+        let btnFilter = 'all';
 
-        // Attach tweet image / thumbnail if present
-        if (tweetMeta?.mediaUrl) {
-          tweetEmbed.setImage(tweetMeta.mediaUrl);
-        } else if (tweetMeta?.authorAvatar) {
-          tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+        if (optionsStr) {
+          const lower = optionsStr.toLowerCase();
+          if (
+            lower.includes('image: no') ||
+            lower.includes('image: off') ||
+            lower.includes('image: false') ||
+            lower.includes('no image') ||
+            lower.includes('img: no') ||
+            lower.includes('img: off') ||
+            lower.includes('hide image') ||
+            lower.trim() === 'no' ||
+            lower.trim() === 'off'
+          ) {
+            showImage = false;
+          } else if (
+            lower.includes('image: yes') ||
+            lower.includes('image: on') ||
+            lower.includes('image: true') ||
+            lower.includes('show image')
+          ) {
+            showImage = true;
+          }
+
+          // Clean out image directive so it doesn't collide with buttons
+          const cleanBtnPart = lower
+            .replace(/image\s*:\s*(yes|no|on|off|true|false)/gi, '')
+            .replace(/(no\s+image|show\s+image|img\s*:\s*(yes|no|on|off)|hide\s+image)/gi, '')
+            .replace(/[|]/g, ' ')
+            .trim();
+
+          if (cleanBtnPart) {
+            btnFilter = cleanBtnPart;
+          }
+        }
+
+        // Resolve tag mention (e.g. @Socials, @everyone, @here, or role ID / name)
+        let tagMention = '';
+        if (tagStr && tagStr.trim()) {
+          const t = tagStr.trim();
+          if (t === '@everyone' || t === '@here') {
+            tagMention = t;
+          } else if (/^<@&?\d+>$/.test(t)) {
+            tagMention = t;
+          } else if (/^\d{17,20}$/.test(t)) {
+            tagMention = `<@&${t}>`;
+          } else {
+            const guild =
+              interaction.guild ||
+              (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+            const cleanName = t.replace(/^@/, '').toLowerCase();
+            const role = guild?.roles?.cache?.find(
+              (r) => r.name.toLowerCase() === cleanName
+            );
+            if (role) {
+              tagMention = `<@&${role.id}>`;
+            } else {
+              tagMention = t.startsWith('@') ? t : `@${t}`;
+            }
+          }
         }
 
         // Determine which action buttons to include based on admin preference
-        const btnFilter = (buttonsStr || '').toLowerCase().trim();
         const isNone =
           btnFilter === 'none' ||
           btnFilter === 'no' ||
@@ -1501,18 +1581,67 @@ export default {
         }
 
         const hasAnyAction = includeLike || includeRt || includeComment;
-        const messageHeader = hasAnyAction
+
+        // Build Engage.io styled message content
+        let messageContent = hasAnyAction
           ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
             `**Engage to collect your points**\n` +
             `Expires <t:${expireTimestampSec}:R>`
           : `**${authorDisplayName}** just posted :\n${cleanUrl}`;
 
+        // Format custom snippet with Engage.io bullet points
+        if (customText && customText.trim()) {
+          const formattedSnippet = customText
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => (/^[•\-\*]\s+/.test(line) ? line : `• ${line}`))
+            .join('\n');
+
+          messageContent += `\n\n${formattedSnippet}`;
+        }
+
+        // Append role / tag ping
+        if (tagMention) {
+          messageContent += `\n${tagMention}`;
+        }
+
+        // Build optional Tweet Media Embed if enabled
+        const embeds = [];
+        if (showImage) {
+          const tweetEmbed = new EmbedBuilder()
+            .setColor(0x1da1f2)
+            .setAuthor({
+              name: `${authorDisplayName} (@${username})`,
+              iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+              url: cleanUrl,
+            })
+            .setTitle(`@${username} tweeted !`)
+            .setURL(cleanUrl)
+            .setDescription(tweetBody)
+            .setFooter({
+              text: 'Powered by Questify Gamification',
+              iconURL: interaction.client.user.displayAvatarURL(),
+            })
+            .setTimestamp();
+
+          if (tweetMeta?.mediaUrl) {
+            tweetEmbed.setImage(tweetMeta.mediaUrl);
+          } else if (tweetMeta?.authorAvatar) {
+            tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+          }
+
+          embeds.push(tweetEmbed);
+        }
+
         const components = actionRow.components.length > 0 ? [actionRow] : [];
 
         const sentMessage = await interaction.channel.send({
-          content: messageHeader,
-          embeds: [tweetEmbed],
+          content: messageContent,
+          embeds,
           components,
+          flags: showImage ? undefined : MessageFlags.SuppressEmbeds,
+          allowedMentions: { parse: ['roles', 'users', 'everyone'] },
         });
 
         await supabase.from('tweet_quests').upsert(

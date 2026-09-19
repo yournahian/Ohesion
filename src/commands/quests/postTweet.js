@@ -6,6 +6,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  MessageFlags,
 } from 'discord.js';
 import { supabase } from '../../lib/supabase.js';
 import { parseTweetUrl, fetchTweetMetadata } from '../../utils/twitter.js';
@@ -38,7 +39,19 @@ export default {
     .addStringOption(option =>
       option
         .setName('buttons')
-        .setDescription('Buttons to include: e.g. "like, rt, comment", or "like, rt", or "like"')
+        .setDescription('Buttons to include: e.g. "like, rt, comment", or "like, rt", or "none"')
+        .setRequired(false)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('show_image')
+        .setDescription('Show tweet media thumbnail & image display? (default: true)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('tag')
+        .setDescription('Server role or member tag to ping (e.g. @Socials, @everyone, or role name)')
         .setRequired(false)
     )
     .addChannelOption(option =>
@@ -51,13 +64,13 @@ export default {
     .addRoleOption(option =>
       option
         .setName('role_mention')
-        .setDescription('Role to ping (e.g. @Socials)')
+        .setDescription('Role to ping (alternative to tag)')
         .setRequired(false)
     )
     .addStringOption(option =>
       option
         .setName('custom_text')
-        .setDescription('Custom description or snippet of the tweet')
+        .setDescription('Custom description / requirements (formatted Engage.io style)')
         .setRequired(false)
     ),
 
@@ -87,6 +100,8 @@ export default {
     const points = interaction.options.getInteger('points') || 25;
     const expireHours = interaction.options.getInteger('expire_hours') || 24;
     const buttonsOption = interaction.options.getString('buttons') || 'all';
+    const showImage = interaction.options.getBoolean('show_image') ?? true;
+    const rawTag = interaction.options.getString('tag');
     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
     const roleMention = interaction.options.getRole('role_mention');
     const customText = interaction.options.getString('custom_text');
@@ -96,42 +111,46 @@ export default {
     // Fetch tweet metadata with media thumbnail & author avatar
     const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
     const authorDisplayName = tweetMeta?.authorName || `@${username}`;
-    const tweetBody = customText || tweetMeta?.text || 'Engage with this post on X to earn points!';
+    const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
 
     // Calculate expiration timestamp
     const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
     const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-    // 1. Construct Message Header
-    let messageHeader = `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-      `**Engage to collect your points**\n` +
-      `Expires <t:${expireTimestampSec}:R>`;
-
+    // Resolve tag mention (e.g. @Socials, @everyone, @here, or role ID / name)
+    let tagMention = '';
     if (roleMention) {
-      messageHeader += `\n\n<@&${roleMention.id}>`;
+      tagMention = `<@&${roleMention.id}>`;
+    } else if (rawTag && rawTag.trim()) {
+      const t = rawTag.trim();
+      if (t === '@everyone' || t === '@here') {
+        tagMention = t;
+      } else if (/^<@&?\d+>$/.test(t)) {
+        tagMention = t;
+      } else if (/^\d{17,20}$/.test(t)) {
+        tagMention = `<@&${t}>`;
+      } else {
+        const cleanName = t.replace(/^@/, '').toLowerCase();
+        const role = interaction.guild?.roles?.cache?.find(
+          (r) => r.name.toLowerCase() === cleanName
+        );
+        if (role) {
+          tagMention = `<@&${role.id}>`;
+        } else {
+          tagMention = t.startsWith('@') ? t : `@${t}`;
+        }
+      }
     }
 
-    // 2. Build Twitter Card Embed
-    const tweetEmbed = new EmbedBuilder()
-      .setColor(0x1da1f2) // Twitter Sky Blue
-      .setAuthor({
-        name: `${authorDisplayName} (@${username})`,
-        iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
-        url: cleanUrl,
-      })
-      .setTitle(`@${username} tweeted !`)
-      .setURL(cleanUrl)
-      .setDescription(tweetBody)
-      .setFooter({
-        text: 'Powered by Questify Gamification',
-        iconURL: interaction.client.user.displayAvatarURL(),
-      })
-      .setTimestamp();
-
-    if (tweetMeta?.mediaUrl) {
-      tweetEmbed.setImage(tweetMeta.mediaUrl);
-    } else if (tweetMeta?.authorAvatar) {
-      tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+    // Format custom snippet with Engage.io bullet points
+    let formattedSnippet = '';
+    if (customText && customText.trim()) {
+      formattedSnippet = customText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => (/^[•\-\*]\s+/.test(line) ? line : `• ${line}`))
+        .join('\n');
     }
 
     // 3. Construct Interactive Action Row with Filtered Buttons
@@ -205,11 +224,48 @@ export default {
     }
 
     const hasAnyAction = includeLike || includeRt || includeComment;
-    if (!hasAnyAction) {
-      messageHeader = `**${authorDisplayName}** just posted :\n${cleanUrl}`;
-      if (roleMention) {
-        messageHeader += `\n\n<@&${roleMention.id}>`;
+
+    // Construct Engage.io style Message Content
+    let messageContent = hasAnyAction
+      ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
+        `**Engage to collect your points**\n` +
+        `Expires <t:${expireTimestampSec}:R>`
+      : `**${authorDisplayName}** just posted :\n${cleanUrl}`;
+
+    if (formattedSnippet) {
+      messageContent += `\n\n${formattedSnippet}`;
+    }
+
+    if (tagMention) {
+      messageContent += `\n${tagMention}`;
+    }
+
+    // Build optional Twitter Card Embed
+    const embeds = [];
+    if (showImage) {
+      const tweetEmbed = new EmbedBuilder()
+        .setColor(0x1da1f2) // Twitter Sky Blue
+        .setAuthor({
+          name: `${authorDisplayName} (@${username})`,
+          iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+          url: cleanUrl,
+        })
+        .setTitle(`@${username} tweeted !`)
+        .setURL(cleanUrl)
+        .setDescription(tweetBody)
+        .setFooter({
+          text: 'Powered by Questify Gamification',
+          iconURL: interaction.client.user.displayAvatarURL(),
+        })
+        .setTimestamp();
+
+      if (tweetMeta?.mediaUrl) {
+        tweetEmbed.setImage(tweetMeta.mediaUrl);
+      } else if (tweetMeta?.authorAvatar) {
+        tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
       }
+
+      embeds.push(tweetEmbed);
     }
 
     const components = actionRow.components.length > 0 ? [actionRow] : [];
@@ -217,9 +273,11 @@ export default {
     try {
       // 4. Send the message to the target broadcast channel
       const sentMessage = await targetChannel.send({
-        content: messageHeader,
-        embeds: [tweetEmbed],
+        content: messageContent,
+        embeds,
         components,
+        flags: showImage ? undefined : MessageFlags.SuppressEmbeds,
+        allowedMentions: { parse: ['roles', 'users', 'everyone'] },
       });
 
       // 5. Store Quest details in Supabase
