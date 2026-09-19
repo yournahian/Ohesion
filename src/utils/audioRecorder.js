@@ -604,6 +604,7 @@ export function getRecordingStatus(guildId) {
     speakersCount: session.speakers.size,
     speakers: activeSpeakers,
     initiatedBy: session.initiatedBy,
+    initiatedById: session.initiatedById,
   };
 }
 

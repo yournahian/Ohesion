@@ -457,6 +457,14 @@ export default {
           });
         }
 
+        // Ownership Check: Only the admin who started the recording can stop and receive deliverables
+        if (activeStatus.initiatedById && interaction.user.id !== activeStatus.initiatedById) {
+          return interaction.reply({
+            content: `⛔ **Session Ownership Restriction**: This recording was started by <@${activeStatus.initiatedById}>.\nOnly the original session controller can stop the recording and receive the deliverables.`,
+            ephemeral: true,
+          });
+        }
+
         if (interaction.isButton()) {
           await interaction.deferUpdate();
         } else {
@@ -589,42 +597,74 @@ export default {
 
         const activeStatus = getRecordingStatus(guildId);
         if (activeStatus) {
-          const embed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle('🔴 Multi-Track Voice Recording Active')
-            .setDescription(
-              `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
-              `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
-              `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
-              `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n` +
-              `• **Started By:** ${activeStatus.initiatedBy}\n\n` +
-              `Click **Stop & Process Deliverables** when you want to conclude the session.`
-            )
-            .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Questify Podcast Engine` })
-            .setTimestamp();
+          const isOwner = activeStatus.initiatedById ? interaction.user.id === activeStatus.initiatedById : true;
 
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId('record_stop')
-              .setLabel('Stop & Process Deliverables')
-              .setEmoji('⏹️')
-              .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-              .setCustomId('admin_rec_refresh')
-              .setLabel('Refresh Status')
-              .setEmoji('🔄')
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId('admin_rec_cancel')
-              .setLabel('Cancel / Discard')
-              .setEmoji('❌')
-              .setStyle(ButtonStyle.Secondary)
-          );
+          if (isOwner) {
+            const embed = new EmbedBuilder()
+              .setColor(0x5865f2)
+              .setTitle('🔴 Multi-Track Voice Recording Active (Session Controller)')
+              .setDescription(
+                `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+                `• **Session Controller:** <@${activeStatus.initiatedById}> (You)\n` +
+                `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+                `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+                `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n\n` +
+                `Click **Stop & Process Deliverables** when you want to conclude the session and generate deliverables.`
+              )
+              .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Questify Podcast Engine` })
+              .setTimestamp();
 
-          if (interaction.replied || interaction.deferred) {
-            return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('record_stop')
+                .setLabel('Stop & Process Deliverables')
+                .setEmoji('⏹️')
+                .setStyle(ButtonStyle.Danger),
+              new ButtonBuilder()
+                .setCustomId('admin_rec_refresh')
+                .setLabel('Refresh Status')
+                .setEmoji('🔄')
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId('admin_rec_cancel')
+                .setLabel('Cancel / Discard')
+                .setEmoji('❌')
+                .setStyle(ButtonStyle.Secondary)
+            );
+
+            if (interaction.replied || interaction.deferred) {
+              return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+            }
+            return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+          } else {
+            const embed = new EmbedBuilder()
+              .setColor(0xf39c12)
+              .setTitle('🎙️ Voice Recording Active in Server (Monitor View)')
+              .setDescription(
+                `A multi-track recording session is currently active in **<#${activeStatus.channelId}>**!\n\n` +
+                `• **Session Controller:** <@${activeStatus.initiatedById}> (${activeStatus.initiatedBy})\n` +
+                `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+                `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+                `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n\n` +
+                `🔒 **Ownership Protected:**\n` +
+                `This session was started by <@${activeStatus.initiatedById}>. Only the session controller can stop the recording and receive the production deliverables.`
+              )
+              .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Read-Only Monitor` })
+              .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('admin_rec_refresh')
+                .setLabel('Refresh Status')
+                .setEmoji('🔄')
+                .setStyle(ButtonStyle.Secondary)
+            );
+
+            if (interaction.replied || interaction.deferred) {
+              return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+            }
+            return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
           }
-          return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
         }
 
         // Fetch voice channels
@@ -689,27 +729,91 @@ export default {
           });
         }
 
-        const embed = new EmbedBuilder()
-          .setColor(0x5865f2)
-          .setTitle('🔴 Multi-Track Voice Recording Active')
-          .setDescription(
-            `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
-            `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
-            `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
-            `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n` +
-            `• **Started By:** ${activeStatus.initiatedBy}\n\n` +
-            `Click **Stop & Process Deliverables** when you want to conclude the session.`
-          )
-          .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Refreshed just now` })
-          .setTimestamp();
+        const isOwner = activeStatus.initiatedById ? interaction.user.id === activeStatus.initiatedById : true;
 
-        return interaction.update({ embeds: [embed] });
+        if (isOwner) {
+          const embed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🔴 Multi-Track Voice Recording Active (Session Controller)')
+            .setDescription(
+              `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+              `• **Session Controller:** <@${activeStatus.initiatedById}> (You)\n` +
+              `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+              `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+              `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n\n` +
+              `Click **Stop & Process Deliverables** when you want to conclude the session and generate deliverables.`
+            )
+            .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Refreshed just now` })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('record_stop')
+              .setLabel('Stop & Process Deliverables')
+              .setEmoji('⏹️')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_refresh')
+              .setLabel('Refresh Status')
+              .setEmoji('🔄')
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_cancel')
+              .setLabel('Cancel / Discard')
+              .setEmoji('❌')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          return interaction.update({ embeds: [embed], components: [row] });
+        } else {
+          const embed = new EmbedBuilder()
+            .setColor(0xf39c12)
+            .setTitle('🎙️ Voice Recording Active in Server (Monitor View)')
+            .setDescription(
+              `A multi-track recording session is currently active in **<#${activeStatus.channelId}>**!\n\n` +
+              `• **Session Controller:** <@${activeStatus.initiatedById}> (${activeStatus.initiatedBy})\n` +
+              `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+              `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+              `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n\n` +
+              `🔒 **Ownership Protected:**\n` +
+              `This session was started by <@${activeStatus.initiatedById}>. Only the session controller can stop the recording and receive the production deliverables.`
+            )
+            .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Refreshed just now` })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('admin_rec_refresh')
+              .setLabel('Refresh Status')
+              .setEmoji('🔄')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          return interaction.update({ embeds: [embed], components: [row] });
+        }
       }
 
       if (customId === 'admin_rec_cancel') {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
             content: '⛔ **Access Denied**: You need `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const activeStatus = getRecordingStatus(guildId);
+        if (!activeStatus) {
+          return interaction.update({
+            content: 'ℹ️ No active recording session was running.',
+            embeds: [],
+            components: [],
+          });
+        }
+
+        // Ownership Check: Only session owner can cancel
+        if (activeStatus.initiatedById && interaction.user.id !== activeStatus.initiatedById) {
+          return interaction.reply({
+            content: `⛔ **Access Denied**: This recording was started by <@${activeStatus.initiatedById}>. Only the session controller can discard it.`,
             ephemeral: true,
           });
         }
@@ -733,6 +837,15 @@ export default {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
             content: '⛔ **Access Denied**: You need `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        // Prevent multiple simultaneous recording sessions
+        const activeCheck = getRecordingStatus(guildId);
+        if (activeCheck) {
+          return interaction.reply({
+            content: `⚠️ A recording session is already active in **<#${activeCheck.channelId}>** (started by <@${activeCheck.initiatedById}>). Please wait for it to conclude.`,
             ephemeral: true,
           });
         }
@@ -4343,6 +4456,14 @@ export default {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
             content: '⛔ You need `Manage Server` permissions to configure voice recordings.',
+            ephemeral: true,
+          });
+        }
+
+        const activeCheck = getRecordingStatus(guildId);
+        if (activeCheck) {
+          return interaction.reply({
+            content: `⚠️ A recording session is already active in **<#${activeCheck.channelId}>** (started by <@${activeCheck.initiatedById}>). Please wait for it to conclude.`,
             ephemeral: true,
           });
         }
