@@ -33,8 +33,8 @@ const activeMatches = new Map();
 // Secondary index: matchId => match object
 const matchIndex = new Map();
 
-// Battle Shield Crest Icon
-const BATTLE_CREST_ICON = 'https://cdn-icons-png.flaticon.com/512/8654/8654406.png';
+// Battle Shield Crest Icon (Questify Official Crest on Discord CDN)
+const BATTLE_CREST_ICON = 'https://cdn.discordapp.com/avatars/1550544108349554799/a76ff58ee944bf6698b981df4bf05a03.png?size=512';
 
 /**
  * Returns the active match for a guild.
@@ -392,11 +392,12 @@ export function scheduleCountdowns(match, client) {
             : '';
           const quote = flavorQuotes[Math.floor(Math.random() * flavorQuotes.length)];
 
+          const botIcon = client?.user?.displayAvatarURL({ dynamic: true, size: 512 }) || BATTLE_CREST_ICON;
           const countdownEmbed = new EmbedBuilder()
             .setColor(0xfee75c) // Rumble Royale Yellow
             .setTitle('Chaos Clash')
             .setDescription(`Starting in ${ms} seconds.\n${jumpLink}${quote}`)
-            .setThumbnail(BATTLE_CREST_ICON);
+            .setThumbnail(botIcon);
 
           await channel.send({ embeds: [countdownEmbed] }).catch(() => null);
         } catch (_) {}
@@ -869,7 +870,7 @@ export async function startBattleSimulation(match, client) {
       `**Prize:** ${match.prizePool} QP & +${match.prizeXp} XP\n` +
       `**QP Per Kill:** ${match.goldPerKill} QP`
     )
-    .setThumbnail(BATTLE_CREST_ICON);
+    .setThumbnail(client?.user?.displayAvatarURL({ dynamic: true, size: 512 }) || BATTLE_CREST_ICON);
 
   if (channel) {
     await channel.send({ embeds: [startSessionEmbed] }).catch(() => null);
