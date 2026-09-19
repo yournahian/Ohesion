@@ -264,6 +264,11 @@ export function buildLobbyPayload(match) {
       .setEmoji('⚔️')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
+      .setCustomId(`battle_view_fighters_${match.matchId}`)
+      .setLabel('View Fighters')
+      .setEmoji('👥')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
       .setCustomId(`battle_bet_${match.matchId}`)
       .setLabel('Place Bet')
       .setEmoji('🏛️')
@@ -327,6 +332,37 @@ export function buildClassSelectionPayload(matchId) {
     components: [row],
     ephemeral: true,
   };
+}
+
+/**
+ * Builds the ephemeral Fighters List popup payload when a user clicks [ 👥 View Fighters ].
+ */
+export function buildFightersListPayload(matchId) {
+  const match = matchIndex.get(matchId);
+  if (!match) {
+    return { content: '❌ Match session not found or already completed.', ephemeral: true };
+  }
+
+  const isInteractive = match.mode === 'interactive';
+  const participants = Array.from(match.participants.values());
+
+  const embed = new EmbedBuilder()
+    .setColor(isInteractive ? 0xd90429 : 0x3498db)
+    .setTitle(`👥 Registered Fighters (${participants.length})`)
+    .setFooter({ text: `Chaos Clash • ${isInteractive ? 'Interactive Mode' : 'Classic Mode'}` });
+
+  if (participants.length === 0) {
+    embed.setDescription('*No fighters have entered the arena yet. Be the first to join!*');
+  } else {
+    const listLines = participants.map((p, idx) => {
+      const classStr = isInteractive ? ` (${p.archetype || 'Tactician'})` : '';
+      return `${idx + 1}. **${p.displayName}**${classStr}`;
+    });
+
+    embed.setDescription(listLines.join('\n'));
+  }
+
+  return { embeds: [embed], ephemeral: true };
 }
 
 /**

@@ -46,6 +46,7 @@ import {
   joinBattleMatch,
   buildLobbyPayload,
   buildClassSelectionPayload,
+  buildFightersListPayload,
   setPlayerArchetype,
   resolveQTEAction,
   startBattleSimulation,
@@ -1647,6 +1648,13 @@ export default {
         return interaction.editReply({
           content: signupMsg,
         });
+      }
+
+      // --- VIEW FIGHTERS BUTTON ---
+      if (customId.startsWith('battle_view_fighters_')) {
+        const matchId = customId.replace('battle_view_fighters_', '');
+        const payload = buildFightersListPayload(matchId);
+        return interaction.reply(payload);
       }
 
       // --- P. CHAOS CLASH: CHOOSE ARCHETYPE BUTTON ---
