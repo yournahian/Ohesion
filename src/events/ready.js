@@ -1,5 +1,6 @@
 import { Events, ActivityType } from 'discord.js';
 import { initActivePollsWatcher } from '../utils/pollManager.js';
+import { initActiveAuctionsWatcher } from '../utils/auctionManager.js';
 
 export default {
   name: Events.ClientReady,
@@ -10,9 +11,12 @@ export default {
     client.guilds.cache.forEach((g) => console.log(` - ${g.name} (ID: ${g.id})`));
     client.user.setActivity('Questify Quests & Rewards ⚡', { type: ActivityType.Watching });
 
-    // Initialize watchers for active polls
+    // Initialize watchers for active polls and auctions
     initActivePollsWatcher(client).catch((err) =>
       console.warn('[READY POLL WATCHER ERROR]:', err.message)
+    );
+    initActiveAuctionsWatcher(client).catch((err) =>
+      console.warn('[READY AUCTION WATCHER ERROR]:', err.message)
     );
   },
 };

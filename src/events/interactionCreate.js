@@ -15,7 +15,7 @@ import {
 import { supabase } from '../lib/supabase.js';
 import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadata } from '../utils/twitter.js';
 import { buildHubPayload } from '../utils/hubView.js';
-import { buildAuctionPayload, executeBid } from '../utils/auctionManager.js';
+import { buildAuctionPayload, executeBid, scheduleAuctionConclusion } from '../utils/auctionManager.js';
 import { getLevelFromXp } from '../utils/levelCalculator.js';
 import {
   buildQuizPayload,
@@ -1464,9 +1464,13 @@ export default {
         const auctionListText = auctions
           .map((a, i) => {
             const highBid = Number(a.current_highest_bid || 0);
+            const jumpLink =
+              a.channel_id && a.message_id
+                ? ` • [👉 Jump to Message](https://discord.com/channels/${guildId}/${a.channel_id}/${a.message_id})`
+                : '';
             return `**${i + 1}. ${a.item_title}**\n` +
               `↳ Highest Bid: **${highBid > 0 ? `${highBid.toLocaleString()} QP` : 'Starting: ' + a.starting_bid + ' QP'}**\n` +
-              `↳ Ends: <t:${Math.floor(new Date(a.end_time).getTime() / 1000)}:R> • ID: \`${a.auction_id.slice(0, 8)}...\``;
+              `↳ Ends: <t:${Math.floor(new Date(a.end_time).getTime() / 1000)}:R>${jumpLink}`;
           })
           .join('\n\n');
 
@@ -1475,11 +1479,28 @@ export default {
           .setTitle(`🔨 ${interaction.guild?.name || 'Server'} • Active Auctions`)
           .setDescription(
             `${auctionListText}\n\n` +
-            `*Head over to the live auction message to place bids!*`
+            `*Select an auction below to view full details or place a bid:*`
           )
           .setFooter({ text: 'Questify Live Escrow Auctions' });
 
-        return interaction.editReply({ embeds: [embed] });
+        const options = auctions.slice(0, 25).map((a, i) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${i + 1}. ${a.item_title.slice(0, 45)}`)
+            .setDescription(
+              `Top: ${Number(a.current_highest_bid || 0) > 0 ? a.current_highest_bid + ' QP' : a.starting_bid + ' QP'} • Ends soon`
+            )
+            .setValue(a.auction_id)
+            .setEmoji('🔨')
+        );
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('select_view_auction')
+          .setPlaceholder('Choose an auction to view or bid on')
+          .addOptions(options);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+        return interaction.editReply({ embeds: [embed], components: [row] });
       }
 
       // --- I. AUCTION BID BUTTON (Pops up Place Bid Modal) ---
@@ -2906,6 +2927,16 @@ export default {
           })
           .eq('auction_id', auction.auction_id);
 
+        // Schedule auto-conclusion watchdog
+        scheduleAuctionConclusion(
+          {
+            ...auction,
+            channel_id: interaction.channelId,
+            message_id: sentMessage.id,
+          },
+          interaction.client
+        );
+
         return interaction.editReply({
           content: `✅ Auction for **${title}** launched successfully in this channel! (Auction ID: \`${auction.auction_id}\`)`,
         });
@@ -3797,6 +3828,36 @@ export default {
           embeds: [panel.embed],
           components: [panel.row],
         });
+      }
+
+      // --- SELECT: VIEW ACTIVE AUCTION (MEMBER) ---
+      if (selectId === 'select_view_auction') {
+        const auctionId = interaction.values[0];
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: auction } = await supabase
+          .from('auctions')
+          .select('*')
+          .eq('auction_id', auctionId)
+          .maybeSingle();
+
+        if (!auction) {
+          return interaction.editReply({ content: '❌ Auction not found.' });
+        }
+
+        const payload = buildAuctionPayload(auction);
+
+        if (auction.guild_id && auction.channel_id && auction.message_id) {
+          const jumpBtn = new ButtonBuilder()
+            .setLabel('Jump to Channel')
+            .setEmoji('🔗')
+            .setURL(`https://discord.com/channels/${auction.guild_id}/${auction.channel_id}/${auction.message_id}`)
+            .setStyle(ButtonStyle.Link);
+
+          payload.components[0].addComponents(jumpBtn);
+        }
+
+        return interaction.editReply(payload);
       }
 
       // --- SELECT: BUY MARKETPLACE ITEM (MEMBER) ---
