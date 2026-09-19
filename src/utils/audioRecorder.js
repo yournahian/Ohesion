@@ -150,43 +150,56 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     const elapsedSeconds = (Date.now() - session.startedAt) / 1000;
     const expectedBytes = Math.floor(elapsedSeconds * BYTES_PER_SECOND);
     if (expectedBytes > speaker.writtenBytes) {
-      const silenceBytes = expectedBytes - speaker.writtenBytes;
-      const silenceChunk = Buffer.alloc(Math.min(silenceBytes, BYTES_PER_SECOND * 300)); // Cap max silence chunk to 300s to avoid memory spikes
-      speaker.fileStream.write(silenceChunk);
-      speaker.writtenBytes += silenceBytes;
+      let remainingSilence = expectedBytes - speaker.writtenBytes;
+      while (remainingSilence > 0) {
+        const chunkSize = Math.min(remainingSilence, BYTES_PER_SECOND * 10);
+        speaker.fileStream.write(Buffer.alloc(chunkSize));
+        speaker.writtenBytes += chunkSize;
+        remainingSilence -= chunkSize;
+      }
     }
 
     session.activeSubscriptions.add(userId);
 
-    // Subscribe to Opus audio stream
-    const opusStream = session.receiver.subscribe(userId, {
-      end: {
-        behavior: EndBehaviorType.AfterSilence,
-        duration: 1000,
-      },
-    });
+    try {
+      // Subscribe to Opus audio stream
+      const opusStream = session.receiver.subscribe(userId, {
+        end: {
+          behavior: EndBehaviorType.AfterSilence,
+          duration: 1000,
+        },
+      });
 
-    const decoder = new prism.opus.Decoder({
-      rate: 48000,
-      channels: 2,
-      frameSize: 960,
-    });
+      const decoder = new prism.opus.Decoder({
+        rate: 48000,
+        channels: 2,
+        frameSize: 960,
+      });
 
-    opusStream.pipe(decoder);
+      opusStream.pipe(decoder);
 
-    decoder.on('data', (pcmChunk) => {
-      if (session.isStopping) return;
-      speaker.fileStream.write(pcmChunk);
-      speaker.writtenBytes += pcmChunk.length;
-    });
+      decoder.on('data', (pcmChunk) => {
+        if (session.isStopping) return;
+        speaker.fileStream.write(pcmChunk);
+        speaker.writtenBytes += pcmChunk.length;
+      });
 
-    decoder.on('error', (err) => {
-      console.warn(`[AUDIO DECODER ERROR] (${username}):`, err.message);
-    });
+      decoder.on('error', (err) => {
+        console.warn(`[AUDIO DECODER ERROR] (${username}):`, err.message);
+      });
 
-    opusStream.on('end', () => {
+      opusStream.on('error', (err) => {
+        console.warn(`[OPUS STREAM ERROR] (${username}):`, err.message);
+        session.activeSubscriptions.delete(userId);
+      });
+
+      opusStream.on('end', () => {
+        session.activeSubscriptions.delete(userId);
+      });
+    } catch (decoderErr) {
+      console.error(`[AUDIO DECODER INIT ERROR] (${username}):`, decoderErr);
       session.activeSubscriptions.delete(userId);
-    });
+    }
   });
 
   // Handle unexpected disconnects
