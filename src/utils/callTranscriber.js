@@ -79,6 +79,7 @@ async function transcribeWithGroq(filePath, speakerName) {
   formData.append('model', 'whisper-large-v3-turbo');
   formData.append('response_format', 'verbose_json');
   formData.append('temperature', '0');
+  formData.append('prompt', 'বাংলা এবং ইংরেজি কথোপকথন। Transcribe in the exact spoken language (Bengali বাংলা script for Bengali speech, English for English terms). Do not translate to English.');
 
   const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
     method: 'POST',
@@ -126,6 +127,7 @@ async function transcribeWithOpenAI(filePath, speakerName) {
   formData.append('file', new Blob([fileBuffer], { type: 'audio/wav' }), fileName);
   formData.append('model', 'whisper-1');
   formData.append('response_format', 'verbose_json');
+  formData.append('prompt', 'বাংলা এবং ইংরেজি কথোপকথন। Transcribe in the exact spoken language (Bengali বাংলা script for Bengali speech, English for English terms). Do not translate to English.');
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -294,6 +296,7 @@ export async function generateMeetingNotesAndTimelines(scriptText, sessionMeta =
 
   const prompt = `You are an elite podcast producer and executive assistant.
 Analyze the following recorded call/podcast dialogue transcript and produce a high-impact, professional briefing.
+Important Language Guideline: Match the primary language used in the transcript. If the dialogue is in Bengali (বাংলা), write the Executive Summary, Agenda, and Action Items in natural Bengali (বাংলা) while preserving English terms (e.g., Discord, Quest, Marketplace). If in English, write in English.
 
 Format your response in clean Markdown with exactly these three sections:
 
