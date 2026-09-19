@@ -40,6 +40,8 @@ import {
   getPoll,
   castPollVote,
   hasUserVoted,
+  concludePoll,
+  schedulePollConclusion,
 } from '../utils/pollManager.js';
 import {
   createBattleMatch,
@@ -1568,6 +1570,9 @@ export default {
         });
 
         if (result.error) {
+          if (result.error.includes('concluded')) {
+            await concludePoll(pollId, interaction.client);
+          }
           return interaction.editReply({ content: result.error });
         }
 
@@ -1601,6 +1606,7 @@ export default {
           return interaction.reply({ content: '❌ Poll not found or expired.', ephemeral: true });
         }
         if (Date.now() > new Date(poll.expires_at).getTime()) {
+          await concludePoll(pollId, interaction.client);
           return interaction.reply({ content: '⏳ This poll has already concluded! New options cannot be added.', ephemeral: true });
         }
         if (poll.options.length >= 24) {
@@ -2858,6 +2864,9 @@ export default {
         pollData.message_id = sentMsg.id;
         await savePoll(pollData);
 
+        // Schedule automatic conclusion when poll duration expires
+        schedulePollConclusion(pollData, interaction.client);
+
         return interaction.editReply({
           content:
             `✅ **Community Poll Launched Successfully!**\n\n` +
@@ -3091,6 +3100,9 @@ export default {
         });
 
         if (result.error) {
+          if (result.error.includes('concluded')) {
+            await concludePoll(pollId, interaction.client);
+          }
           return interaction.editReply({ content: result.error });
         }
 

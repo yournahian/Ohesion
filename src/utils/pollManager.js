@@ -95,6 +95,33 @@ export async function buildPollPayload(poll) {
   // Results visibility: 'live' (default) shows live percentages; 'ended' hides until poll concludes
   const showResults = poll.results_visibility !== 'ended' || isExpired;
 
+  // Sync votes from DB if memory is missing them for this poll
+  let hasPollVotesInMemory = false;
+  for (const key of memoryVotes.keys()) {
+    if (key.startsWith(`${poll.poll_id}_`)) {
+      hasPollVotesInMemory = true;
+      break;
+    }
+  }
+
+  if (!hasPollVotesInMemory) {
+    try {
+      const { data: dbVotes } = await supabase
+        .from('poll_votes')
+        .select('discord_id, selected_index')
+        .eq('poll_id', poll.poll_id);
+
+      if (dbVotes && dbVotes.length > 0) {
+        for (const v of dbVotes) {
+          memoryVotes.set(`${poll.poll_id}_${v.discord_id}`, {
+            optionIndex: v.selected_index,
+            votedAt: Date.now(),
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
   // Calculate vote counts per option
   const voteCounts = new Array(poll.options.length).fill(0);
   let totalVotes = 0;
@@ -112,7 +139,7 @@ export async function buildPollPayload(poll) {
   let attachment = null;
   try {
     const imageBuffer = generatePollImage(poll, voteCounts, totalVotes, showResults);
-    attachment = new AttachmentBuilder(imageBuffer, { name: `poll_${poll.poll_id}.png` });
+    attachment = new AttachmentBuilder(imageBuffer, { name: `poll_${poll.poll_id}_${Date.now()}.png` });
   } catch (err) {
     console.error('[POLL CANVAS ERROR]:', err);
   }
@@ -404,4 +431,96 @@ export async function castPollVote({ pollId, guildId, discordId, optionIndex, cl
     newLevel,
     poll,
   };
+}
+
+const scheduledPollTimers = new Map();
+
+/**
+ * Concludes a poll, disables all buttons, reveals results on image, and updates Discord message.
+ */
+export async function concludePoll(pollId, client) {
+  const poll = await getPoll(pollId);
+  if (!poll) return;
+
+  poll.is_active = false;
+  memoryPolls.set(poll.poll_id, poll);
+
+  try {
+    await supabase
+      .from('community_polls')
+      .update({ is_active: false })
+      .eq('poll_id', pollId);
+  } catch (err) {
+    console.warn('[POLL DB] Could not update is_active in DB:', err.message);
+  }
+
+  if (!client || !poll.channel_id || !poll.message_id) return;
+
+  try {
+    const channel = await client.channels.fetch(poll.channel_id).catch(() => null);
+    if (!channel) return;
+    const message = await channel.messages.fetch(poll.message_id).catch(() => null);
+    if (!message) return;
+
+    const payload = await buildPollPayload(poll);
+    await message.edit(payload).catch((e) => console.error('[POLL EDIT MSG ERROR]:', e));
+  } catch (err) {
+    console.error('[POLL CONCLUDE ERROR]:', err);
+  }
+}
+
+/**
+ * Schedules the automatic conclusion of a poll when its duration expires.
+ */
+export function schedulePollConclusion(poll, client) {
+  if (!poll || !poll.poll_id || !poll.expires_at) return;
+
+  if (scheduledPollTimers.has(poll.poll_id)) {
+    clearTimeout(scheduledPollTimers.get(poll.poll_id));
+    scheduledPollTimers.delete(poll.poll_id);
+  }
+
+  const remainingMs = new Date(poll.expires_at).getTime() - Date.now();
+  if (remainingMs <= 0) {
+    concludePoll(poll.poll_id, client);
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    scheduledPollTimers.delete(poll.poll_id);
+    concludePoll(poll.poll_id, client);
+  }, remainingMs);
+
+  scheduledPollTimers.set(poll.poll_id, timer);
+}
+
+/**
+ * Initializes watchdog to monitor active polls on startup and every 30s.
+ */
+export async function initActivePollsWatcher(client) {
+  try {
+    const { data: activePolls } = await supabase
+      .from('community_polls')
+      .select('*')
+      .eq('is_active', true);
+
+    if (activePolls && activePolls.length > 0) {
+      for (const poll of activePolls) {
+        memoryPolls.set(poll.poll_id, poll);
+        schedulePollConclusion(poll, client);
+      }
+    }
+  } catch (err) {
+    console.warn('[POLL INIT WATCHER]:', err.message);
+  }
+
+  // Periodic heartbeat every 30s to catch any expired polls
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [pollId, poll] of memoryPolls.entries()) {
+      if (poll.is_active && new Date(poll.expires_at).getTime() <= now) {
+        await concludePoll(pollId, client);
+      }
+    }
+  }, 30 * 1000);
 }

@@ -1,4 +1,5 @@
 import { Events, ActivityType } from 'discord.js';
+import { initActivePollsWatcher } from '../utils/pollManager.js';
 
 export default {
   name: Events.ClientReady,
@@ -8,5 +9,10 @@ export default {
     console.log(`[CONNECTED SERVERS (${client.guilds.cache.size})]:`);
     client.guilds.cache.forEach((g) => console.log(` - ${g.name} (ID: ${g.id})`));
     client.user.setActivity('Questify Quests & Rewards ⚡', { type: ActivityType.Watching });
+
+    // Initialize watchers for active polls
+    initActivePollsWatcher(client).catch((err) =>
+      console.warn('[READY POLL WATCHER ERROR]:', err.message)
+    );
   },
 };
