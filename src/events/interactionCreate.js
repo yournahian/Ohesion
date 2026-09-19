@@ -65,6 +65,7 @@ import {
   getUserCosmetics,
 } from '../modules/battle/battleCosmetics.js';
 import { placeBet } from '../modules/battle/battleBetting.js';
+import { stopRecording, getRecordingStatus } from '../utils/audioRecorder.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -405,6 +406,111 @@ export default {
           return interaction.reply({
             content: '⛔ **Access Denied**: You need `Manage Server` or `Administrator` permissions to use this control.',
             ephemeral: true,
+          });
+        }
+      }
+
+      // --- RECORDING SESSION BUTTONS ---
+      if (customId === 'record_status') {
+        const status = getRecordingStatus(guildId);
+        if (!status) {
+          return interaction.reply({
+            content: 'ℹ️ No active recording session currently running in this server.',
+            ephemeral: true,
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x118ab2)
+          .setTitle('🎙️ Active Recording Session Status')
+          .setDescription(
+            `• **Voice Channel:** <#${status.channelId}>\n` +
+            `• **Elapsed Duration:** \`${status.durationFormatted}\`\n` +
+            `• **Active Speakers (${status.speakersCount}):** ${status.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+            `• **Output Mode:** \`${status.mode.toUpperCase()}\`\n` +
+            `• **Initiated By:** ${status.initiatedBy}`
+          )
+          .setFooter({ text: `Session ID: ${status.sessionId}` })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+
+      if (customId === 'record_stop') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: You need `Manage Server` or `Administrator` permissions to stop recordings.',
+            ephemeral: true,
+          });
+        }
+
+        const activeStatus = getRecordingStatus(guildId);
+        if (!activeStatus) {
+          return interaction.reply({
+            content: '⚠️ No active recording session is running in this server.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply();
+        await interaction.editReply({
+          content: '⏳ **Concluding session and processing multi-track audio...**\n*Mixing master track, aligning speaker stems, and generating AI meeting notes. This may take 10-30 seconds depending on duration.*',
+        });
+
+        try {
+          const deliverables = await stopRecording(guildId);
+          const { sessionMeta } = deliverables;
+
+          const embed = new EmbedBuilder()
+            .setColor(0x06d6a0)
+            .setTitle('🎙️ Podcast & Call Production Ready!')
+            .setDescription(
+              `**Channel:** <#${sessionMeta.channelId}>\n` +
+              `**Total Duration:** \`${sessionMeta.durationFormatted}\`\n` +
+              `**Recorded Speakers (${sessionMeta.speakers.length}):** ${sessionMeta.speakers.map((s) => `\`${s}\``).join(', ') || '*None detected*'}\n` +
+              `**Mode:** \`${sessionMeta.mode.toUpperCase()}\``
+            )
+            .setTimestamp();
+
+          if (deliverables.meetingNotesMarkdown && deliverables.meetingNotesMarkdown.length > 50) {
+            const previewText = deliverables.meetingNotesMarkdown
+              .replace(/^#+ [^\n]+/gm, '')
+              .trim()
+              .slice(0, 1000);
+
+            embed.addFields({
+              name: '📋 Executive Briefing Preview',
+              value: previewText + (deliverables.meetingNotesMarkdown.length > 1000 ? '\n\n*(Full briefing attached below)*' : ''),
+            });
+          }
+
+          const filesList = [];
+          if (deliverables.masterMp3Path) filesList.push('🎵 `Master_Podcast_Mix.mp3` (Combined Master Audio)');
+          if (deliverables.stemsZipPath) filesList.push('🗂️ `MultiTrack_Stems.zip` (Isolated Speaker Stems for DAWs)');
+          if (deliverables.scriptPath) filesList.push('📝 `Script_Transcript.md` (Full Chronological Dialogue Script)');
+          if (deliverables.notesPath) filesList.push('📋 `Meeting_Notes.md` (Action Items & Timestamped Timeline)');
+
+          if (filesList.length > 0) {
+            embed.addFields({
+              name: '📦 Deliverables Attached',
+              value: filesList.join('\n'),
+            });
+          } else {
+            embed.addFields({
+              name: 'ℹ️ Deliverables',
+              value: 'No audio chunks were captured from speakers during this session.',
+            });
+          }
+
+          return interaction.editReply({
+            content: `✅ Recording session concluded! Here are your production deliverables:`,
+            embeds: [embed],
+            files: deliverables.filesToAttach,
+          });
+        } catch (err) {
+          console.error('[RECORD STOP BUTTON ERROR]:', err);
+          return interaction.editReply({
+            content: `❌ Error finalizing recording: ${err.message}`,
           });
         }
       }
