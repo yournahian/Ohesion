@@ -14,7 +14,7 @@ export const config = {
   clientId: process.env.CLIENT_ID,
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  groqApiKey: process.env.GROQ_API_KEY,
+  groqApiKey: process.env.GROQ_API_KEY || process.env.GROP_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
 };
