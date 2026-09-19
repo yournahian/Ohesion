@@ -95,9 +95,32 @@ function pcmToWav(pcmFilePath, wavFilePath) {
 }
 
 /**
- * Sets up a permanent, studio-grade audio decoder stream for a speaker.
- * Maintains one persistent decoder per user to preserve Opus prediction filters
- * and pads silence in exact 20ms frame multiples (3,840 bytes) to prevent byte misalignment.
+ * Creates an Opus audio decoder instance with graceful fallback
+ */
+function createOpusDecoder() {
+  try {
+    const { OpusEncoder } = require('@discordjs/opus');
+    return new OpusEncoder(48000, 2);
+  } catch {
+    const OpusScript = require('opusscript');
+    const instance = new OpusScript(48000, 2, OpusScript.Application.AUDIO);
+    return {
+      decode(buffer) {
+        return instance.decode(buffer);
+      },
+      destroy() {
+        try {
+          instance.delete();
+        } catch {}
+      },
+    };
+  }
+}
+
+/**
+ * Sets up a permanent, resilient audio decoder stream for a speaker.
+ * Decodes Opus packets directly with error recovery so a single bad packet never kills the stream.
+ * Distinguishes true speech pauses (>=200ms) from normal UDP network jitter (<200ms) to ensure crystal clear audio.
  */
 function setupSpeakerStream(session, user) {
   const userId = user.id;
@@ -123,12 +146,8 @@ function setupSpeakerStream(session, user) {
     return;
   }
 
-  // Create ONE persistent decoder for the entire recording session
-  const decoder = new prism.opus.Decoder({
-    rate: 48000,
-    channels: 2,
-    frameSize: 960,
-  });
+  // Create persistent Opus decoder for this speaker
+  const decoder = createOpusDecoder();
 
   const speaker = {
     userId,
@@ -137,7 +156,7 @@ function setupSpeakerStream(session, user) {
     pcmPath,
     wavPath,
     writtenBytes: 0,
-    lastChunkTime: null,
+    lastPacketTime: null,
     fileStream,
     opusStream,
     decoder,
@@ -145,28 +164,52 @@ function setupSpeakerStream(session, user) {
 
   session.speakers.set(userId, speaker);
 
-  opusStream.pipe(decoder);
-
-  decoder.on('data', (pcmChunk) => {
+  // Directly consume Opus packets from the receiver stream.
+  // Wrapping decoding in try/catch protects the stream from EVER crashing or terminating.
+  opusStream.on('data', (opusPacket) => {
     if (session.isStopping) return;
+    if (!opusPacket || opusPacket.length === 0) return;
+
+    let pcmChunk;
+    try {
+      // Discord silence / comfort noise packet: [0xf8, 0xff, 0xfe]
+      if (opusPacket.length === 3 && opusPacket[0] === 0xf8 && opusPacket[1] === 0xff && opusPacket[2] === 0xfe) {
+        pcmChunk = Buffer.alloc(FRAME_BYTES);
+      } else {
+        pcmChunk = decoder.decode(opusPacket);
+      }
+    } catch (err) {
+      // On corrupt UDP packet, network drop, or invalid frame:
+      // Gracefully substitute a 20ms silence frame so the timeline stays intact,
+      // and DO NOT close or destroy the stream!
+      pcmChunk = Buffer.alloc(FRAME_BYTES);
+    }
+
+    if (!pcmChunk || pcmChunk.length === 0) return;
 
     const now = Date.now();
 
-    if (!speaker.lastChunkTime) {
-      // First audio chunk: pad silence from session start up to this moment
+    if (!speaker.lastPacketTime) {
+      // First speech chunk: pad silence from session start to align beginning of call
       const elapsedMs = Math.max(0, now - session.startedAt);
       const initialFrames = Math.floor(elapsedMs / FRAME_MS);
-      if (initialFrames > 0 && initialFrames < 18000) {
+      if (initialFrames > 0 && initialFrames < 360000) {
         const initialSilence = Buffer.alloc(initialFrames * FRAME_BYTES);
         speaker.fileStream.write(initialSilence);
         speaker.writtenBytes += initialSilence.length;
       }
     } else {
-      // Subsequent audio chunk: check if there was a pause between words/sentences
-      const gapMs = now - speaker.lastChunkTime;
-      if (gapMs > 35) { // gap > 1.5 frames
-        const missingFrames = Math.floor((gapMs - FRAME_MS) / FRAME_MS);
-        if (missingFrames > 0 && missingFrames < 18000) {
+      // Subsequent speech chunks:
+      // Only pad silence if there was an ACTUAL pause between sentences (gap >= 200ms).
+      // Normal network jitter (< 200ms) is NEVER padded with fake silence,
+      // preventing voice blurring, syllable tearing, or robotic distortion!
+      const gapMs = now - speaker.lastPacketTime;
+      if (gapMs >= 200) {
+        const expectedBytes = Math.floor((now - session.startedAt) / FRAME_MS) * FRAME_BYTES;
+        const missingBytes = expectedBytes - speaker.writtenBytes;
+        const missingFrames = Math.floor(missingBytes / FRAME_BYTES);
+
+        if (missingFrames > 0 && missingFrames < 360000) {
           const gapSilence = Buffer.alloc(missingFrames * FRAME_BYTES);
           speaker.fileStream.write(gapSilence);
           speaker.writtenBytes += gapSilence.length;
@@ -174,13 +217,9 @@ function setupSpeakerStream(session, user) {
       }
     }
 
-    speaker.lastChunkTime = now;
+    speaker.lastPacketTime = now;
     speaker.fileStream.write(pcmChunk);
     speaker.writtenBytes += pcmChunk.length;
-  });
-
-  decoder.on('error', (err) => {
-    console.warn(`[AUDIO DECODER ERROR] (${username}):`, err.message);
   });
 
   opusStream.on('error', (err) => {
@@ -387,7 +426,12 @@ export async function stopRecording(guildId) {
   for (const [, speaker] of session.speakers.entries()) {
     try {
       if (speaker.opusStream) speaker.opusStream.destroy();
-      if (speaker.decoder) speaker.decoder.destroy();
+      if (speaker.decoder) {
+        try {
+          if (typeof speaker.decoder.destroy === 'function') speaker.decoder.destroy();
+          else if (typeof speaker.decoder.delete === 'function') speaker.decoder.delete();
+        } catch {}
+      }
 
       if (targetTotalBytes > speaker.writtenBytes) {
         const remainingBytes = targetTotalBytes - speaker.writtenBytes;
@@ -627,7 +671,12 @@ export function cancelRecording(guildId) {
   for (const speaker of session.speakers.values()) {
     try {
       if (speaker.opusStream) speaker.opusStream.destroy();
-      if (speaker.decoder) speaker.decoder.destroy();
+      if (speaker.decoder) {
+        try {
+          if (typeof speaker.decoder.destroy === 'function') speaker.decoder.destroy();
+          else if (typeof speaker.decoder.delete === 'function') speaker.decoder.delete();
+        } catch {}
+      }
       speaker.fileStream.end();
     } catch {}
   }
