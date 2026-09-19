@@ -239,19 +239,26 @@ export default {
         return interaction.editReply({ content: '❌ Failed to process points deduction.' });
       }
 
-      // Fetch existing entry or insert new one
-      const { data: existingEntry } = await supabase
+      // Fetch existing entries or insert new one safely (consolidating any duplicate rows)
+      const { data: existingEntries } = await supabase
         .from('raffle_entries')
         .select('*')
         .eq('raffle_id', raffleId)
-        .eq('discord_id', userId)
-        .maybeSingle();
+        .eq('discord_id', userId);
 
-      if (existingEntry) {
+      const currentOwned = (existingEntries || []).reduce((sum, e) => sum + (e.tickets_bought || 0), 0);
+      const totalTicketsOwned = currentOwned + ticketsCount;
+
+      if (existingEntries && existingEntries.length > 0) {
         await supabase
           .from('raffle_entries')
-          .update({ tickets_bought: existingEntry.tickets_bought + ticketsCount })
-          .eq('entry_id', existingEntry.entry_id);
+          .update({ tickets_bought: totalTicketsOwned })
+          .eq('entry_id', existingEntries[0].entry_id);
+
+        if (existingEntries.length > 1) {
+          const extraIds = existingEntries.slice(1).map(e => e.entry_id);
+          await supabase.from('raffle_entries').delete().in('entry_id', extraIds);
+        }
       } else {
         await supabase.from('raffle_entries').insert({
           raffle_id: raffleId,
@@ -310,12 +317,25 @@ export default {
         });
       }
 
-      // Build weighted ticket pool
-      const pool = [];
+      // Aggregate tickets per member to prevent duplicate counts
+      const userTicketMap = new Map();
       for (const entry of entries) {
-        for (let i = 0; i < entry.tickets_bought; i++) {
-          pool.push(entry.discord_id);
+        const current = userTicketMap.get(entry.discord_id) || 0;
+        userTicketMap.set(entry.discord_id, current + (entry.tickets_bought || 0));
+      }
+
+      const pool = [];
+      for (const [memberId, tickets] of userTicketMap.entries()) {
+        for (let i = 0; i < tickets; i++) {
+          pool.push(memberId);
         }
+      }
+
+      if (pool.length === 0) {
+        await supabase.from('raffles').update({ is_active: false }).eq('raffle_id', raffleId);
+        return interaction.editReply({
+          content: `⚠️ No members entered the raffle for **${raffle.prize}**. The raffle has ended with no winner.`,
+        });
       }
 
       // Pick random winner
@@ -327,13 +347,52 @@ export default {
         .update({ is_active: false, winner_id: winnerId })
         .eq('raffle_id', raffleId);
 
+      // Automated payout detection if prize specifies QP/points or XP
+      let prizePayoutText = '';
+      const prizeLower = (raffle.prize || '').toLowerCase();
+      const pointsMatch = prizeLower.match(/(\d+)\s*(?:qp|points?|quest\s*points?)/i);
+      const xpMatch = prizeLower.match(/(\d+)\s*xp/i);
+
+      const wonPoints = pointsMatch ? parseInt(pointsMatch[1], 10) : 0;
+      const wonXp = xpMatch ? parseInt(xpMatch[1], 10) : 0;
+
+      if (wonPoints > 0 || wonXp > 0) {
+        const { data: winnerRec } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', winnerId)
+          .maybeSingle();
+
+        const curPoints = Number(winnerRec?.total_points || 0);
+        const curXp = Number(winnerRec?.xp || 0);
+        const newPoints = curPoints + wonPoints;
+        const newXp = curXp + wonXp;
+
+        await supabase.from('users').upsert(
+          {
+            guild_id: guildId,
+            discord_id: winnerId,
+            total_points: newPoints,
+            xp: newXp,
+          },
+          { onConflict: 'guild_id,discord_id' }
+        );
+
+        const payouts = [];
+        if (wonPoints > 0) payouts.push(`+${wonPoints.toLocaleString()} QP`);
+        if (wonXp > 0) payouts.push(`+${wonXp.toLocaleString()} XP`);
+        prizePayoutText = `\n\n⚡ **Automated Payout:** ${payouts.join(' and ')} has been automatically credited to <@${winnerId}>!`;
+      }
+
       const embed = new EmbedBuilder()
         .setColor(0xffd166)
         .setTitle('🎊 Raffle Winner Announced!')
         .setDescription(
           `The raffle for **${raffle.prize}** has officially ended!\n\n` +
           `👑 **Winner:** <@${winnerId}>\n` +
-          `🎟️ **Total Tickets Entered:** ${pool.length}`
+          `🎟️ **Total Tickets In Pool:** ${pool.length}` +
+          prizePayoutText
         )
         .setFooter({ text: `Raffle ID: ${raffle.raffle_id}` })
         .setTimestamp();

@@ -92,9 +92,9 @@ function parseDuration(str) {
 }
 
 /**
- * Processes purchasing one or more tickets for a raffle and builds the interactive interface.
+ * Builds the interactive embed and action buttons for viewing or purchasing tickets for a raffle.
  */
-async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count = 1 }) {
+async function buildRafflePanel({ guildId, discordId, raffleId, purchaseResult = null }) {
   const { data: raffle } = await supabase
     .from('raffles')
     .select('*')
@@ -107,7 +107,103 @@ async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count
   }
 
   const costPerTicket = Number(raffle.cost);
-  const totalCost = costPerTicket * count;
+
+  // Fetch user profile
+  const { data: userRecord } = await supabase
+    .from('users')
+    .select('total_points')
+    .eq('guild_id', guildId)
+    .eq('discord_id', discordId)
+    .maybeSingle();
+
+  const userPoints = Number(userRecord?.total_points || 0);
+
+  // Fetch all user entries for this raffle to compute user's ticket count
+  const { data: userEntries } = await supabase
+    .from('raffle_entries')
+    .select('tickets_bought')
+    .eq('raffle_id', raffleId)
+    .eq('discord_id', discordId);
+
+  const userTickets = (userEntries || []).reduce((sum, e) => sum + (e.tickets_bought || 0), 0);
+
+  // Fetch total pool tickets
+  const { data: allEntries } = await supabase
+    .from('raffle_entries')
+    .select('tickets_bought')
+    .eq('raffle_id', raffleId);
+
+  const totalPoolTickets = (allEntries || []).reduce((sum, e) => sum + (e.tickets_bought || 0), 0);
+  const endTimestampSec = Math.floor(new Date(raffle.end_time).getTime() / 1000);
+
+  let banner = '';
+  if (purchaseResult) {
+    banner = `✅ **Successfully bought ${purchaseResult.count.toLocaleString()} ticket${purchaseResult.count > 1 ? 's' : ''} for ${purchaseResult.totalCost.toLocaleString()} QP!**\n\n`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(purchaseResult ? 0x06d6a0 : 0x118ab2)
+    .setTitle(purchaseResult ? `🎟️ Tickets Purchased: ${raffle.prize}` : `🎟️ Enter Raffle: ${raffle.prize}`)
+    .setDescription(
+      banner +
+      `🎁 **Prize:** **${raffle.prize}**\n` +
+      `🪙 **Ticket Cost:** **${costPerTicket.toLocaleString()} QP** per ticket\n` +
+      `🎟️ **Your Tickets in Pool:** **${userTickets.toLocaleString()} ticket${userTickets === 1 ? '' : 's'}**\n` +
+      `🌐 **Total Tickets in Pool:** **${totalPoolTickets.toLocaleString()}**\n` +
+      `💰 **Your QP Balance:** **${userPoints.toLocaleString()} QP**\n` +
+      `⏳ **Raffle Ends:** <t:${endTimestampSec}:R> (<t:${endTimestampSec}:f>)\n\n` +
+      `*Click a button below to choose how many tickets to buy:*`
+    )
+    .setFooter({ text: `Raffle ID: ${raffle.raffle_id} • 1 Ticket = ${costPerTicket} QP` });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`rfbuy_1_${raffleId}`)
+      .setLabel(`Buy 1 Ticket (${costPerTicket} QP)`)
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(userPoints < costPerTicket),
+    new ButtonBuilder()
+      .setCustomId(`rfbuy_5_${raffleId}`)
+      .setLabel(`Buy 5 Tickets (${costPerTicket * 5} QP)`)
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(userPoints < costPerTicket * 5),
+    new ButtonBuilder()
+      .setCustomId(`rfbuy_10_${raffleId}`)
+      .setLabel(`Buy 10 Tickets (${costPerTicket * 10} QP)`)
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(userPoints < costPerTicket * 10),
+    new ButtonBuilder()
+      .setCustomId(`rfbuy_custom_${raffleId}`)
+      .setLabel('Custom Quantity')
+      .setEmoji('🔢')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, row, raffle };
+}
+
+/**
+ * Processes purchasing one or more tickets for a raffle and returns the updated raffle panel.
+ */
+async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count = 1 }) {
+  const safeCount = Math.max(1, parseInt(count, 10) || 1);
+
+  const { data: raffle } = await supabase
+    .from('raffles')
+    .select('*')
+    .eq('raffle_id', raffleId)
+    .eq('guild_id', guildId)
+    .maybeSingle();
+
+  if (!raffle || !raffle.is_active || new Date(raffle.end_time) < new Date()) {
+    return { error: '❌ This raffle is inactive or has already ended.' };
+  }
+
+  const costPerTicket = Number(raffle.cost);
+  const totalCost = costPerTicket * safeCount;
 
   const { data: userRecord } = await supabase
     .from('users')
@@ -119,7 +215,7 @@ async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count
   const userPoints = Number(userRecord?.total_points || 0);
   if (userPoints < totalCost) {
     return {
-      error: `❌ Insufficient Quest Points! You need **${totalCost.toLocaleString()} QP** for ${count} ticket(s) (${costPerTicket} QP each), but you only have **${userPoints.toLocaleString()} QP**.`,
+      error: `❌ Insufficient Quest Points! You need **${totalCost.toLocaleString()} QP** for ${safeCount} ticket(s) (${costPerTicket} QP each), but you only have **${userPoints.toLocaleString()} QP**.`,
     };
   }
 
@@ -131,67 +227,41 @@ async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count
     .eq('guild_id', guildId)
     .eq('discord_id', discordId);
 
-  // Upsert entry
-  const { data: existingEntry } = await supabase
+  // Fetch all existing entries for this user & raffle to consolidate duplicates safely
+  const { data: existingEntries } = await supabase
     .from('raffle_entries')
     .select('*')
     .eq('raffle_id', raffleId)
-    .eq('discord_id', discordId)
-    .maybeSingle();
+    .eq('discord_id', discordId);
 
-  let totalTicketsOwned = count;
-  if (existingEntry) {
-    totalTicketsOwned = existingEntry.tickets_bought + count;
+  const currentOwned = (existingEntries || []).reduce((sum, e) => sum + (e.tickets_bought || 0), 0);
+  const totalTicketsOwned = currentOwned + safeCount;
+
+  if (existingEntries && existingEntries.length > 0) {
     await supabase
       .from('raffle_entries')
       .update({ tickets_bought: totalTicketsOwned })
-      .eq('entry_id', existingEntry.entry_id);
+      .eq('entry_id', existingEntries[0].entry_id);
+
+    // Delete redundant duplicate rows if any existed
+    if (existingEntries.length > 1) {
+      const extraIds = existingEntries.slice(1).map(e => e.entry_id);
+      await supabase.from('raffle_entries').delete().in('entry_id', extraIds);
+    }
   } else {
     await supabase.from('raffle_entries').insert({
       raffle_id: raffleId,
       discord_id: discordId,
-      tickets_bought: count,
+      tickets_bought: safeCount,
     });
   }
 
-  const endTimestampSec = Math.floor(new Date(raffle.end_time).getTime() / 1000);
-
-  const embed = new EmbedBuilder()
-    .setColor(0x06d6a0)
-    .setTitle(`🎟️ Ticket Purchased: ${raffle.prize}`)
-    .setDescription(
-      `✅ You successfully bought **${count.toLocaleString()} ticket${count > 1 ? 's' : ''}** for **${totalCost.toLocaleString()} QP**!\n\n` +
-      `🎟️ **Your Total Tickets in Pool:** **${totalTicketsOwned.toLocaleString()} ticket${totalTicketsOwned > 1 ? 's' : ''}**\n` +
-      `🪙 **Remaining Balance:** **${remainingPoints.toLocaleString()} QP**\n` +
-      `⏳ **Raffle Ends:** <t:${endTimestampSec}:R> (<t:${endTimestampSec}:f>)\n\n` +
-      `*Want to increase your chances? Buy additional tickets directly below:*`
-    )
-    .setFooter({ text: `Raffle ID: ${raffle.raffle_id} • 1 Ticket = ${costPerTicket} QP` });
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`raffle_buy_${raffleId}_1`)
-      .setLabel('+1 Ticket')
-      .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`raffle_buy_${raffleId}_5`)
-      .setLabel('+5 Tickets')
-      .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`raffle_buy_${raffleId}_10`)
-      .setLabel('+10 Tickets')
-      .setEmoji('🎟️')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`raffle_buy_custom_${raffleId}`)
-      .setLabel('Custom Quantity')
-      .setEmoji('🔢')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  return { embed, row, raffle };
+  return buildRafflePanel({
+    guildId,
+    discordId,
+    raffleId,
+    purchaseResult: { count: safeCount, totalCost },
+  });
 }
 
 /**
@@ -1930,11 +2000,25 @@ export default {
         });
       }
 
-      // --- RAFFLE: MULTI-TICKET QUICK PURCHASE BUTTONS (+1, +5, +10) ---
-      if (customId.startsWith('raffle_buy_') && !customId.startsWith('raffle_buy_custom_')) {
-        const parts = customId.split('_'); // ['raffle', 'buy', raffleId, count]
-        const raffleId = parts[2];
-        const count = parseInt(parts[3], 10) || 1;
+      // --- RAFFLE: MULTI-TICKET QUICK PURCHASE BUTTONS (rfbuy_<count>_<raffleId> or legacy raffle_buy_) ---
+      if (
+        (customId.startsWith('rfbuy_') && !customId.startsWith('rfbuy_custom_')) ||
+        (customId.startsWith('raffle_buy_') && !customId.startsWith('raffle_buy_custom_'))
+      ) {
+        let count = 1;
+        let raffleId = '';
+
+        if (customId.startsWith('rfbuy_')) {
+          // Format: rfbuy_<count>_<raffleId>
+          const parts = customId.split('_');
+          count = parseInt(parts[1], 10) || 1;
+          raffleId = parts.slice(2).join('_');
+        } else {
+          // Legacy format: raffle_buy_<raffleId>_<count>
+          const parts = customId.split('_');
+          count = parseInt(parts[parts.length - 1], 10) || 1;
+          raffleId = parts.slice(2, parts.length - 1).join('_');
+        }
 
         await interaction.deferUpdate();
 
@@ -1956,8 +2040,10 @@ export default {
       }
 
       // --- RAFFLE: CUSTOM QUANTITY BUTTON (PROMPTS MODAL) ---
-      if (customId.startsWith('raffle_buy_custom_')) {
-        const raffleId = customId.replace('raffle_buy_custom_', '');
+      if (customId.startsWith('rfbuy_custom_') || customId.startsWith('raffle_buy_custom_')) {
+        const raffleId = customId.startsWith('rfbuy_custom_')
+          ? customId.replace('rfbuy_custom_', '')
+          : customId.replace('raffle_buy_custom_', '');
 
         const modal = new ModalBuilder()
           .setCustomId(`modal_raffle_buy_${raffleId}`)
@@ -3453,11 +3539,25 @@ export default {
           });
         }
 
-        const pool = [];
+        // Aggregate tickets per member to prevent duplicate counts
+        const userTicketMap = new Map();
         for (const entry of entries) {
-          for (let i = 0; i < entry.tickets_bought; i++) {
-            pool.push(entry.discord_id);
+          const current = userTicketMap.get(entry.discord_id) || 0;
+          userTicketMap.set(entry.discord_id, current + (entry.tickets_bought || 0));
+        }
+
+        const pool = [];
+        for (const [memberId, tickets] of userTicketMap.entries()) {
+          for (let i = 0; i < tickets; i++) {
+            pool.push(memberId);
           }
+        }
+
+        if (pool.length === 0) {
+          await supabase.from('raffles').update({ is_active: false }).eq('raffle_id', raffleId);
+          return interaction.editReply({
+            content: `⚠️ No members entered the raffle for **${raffle.prize}**. The raffle has ended with no winner.`,
+          });
         }
 
         const winnerId = pool[Math.floor(Math.random() * pool.length)];
@@ -3471,7 +3571,7 @@ export default {
         let prizePayoutText = '';
         let components = [];
         const prizeLower = (raffle.prize || '').toLowerCase();
-        const pointsMatch = prizeLower.match(/(\d+)\s*(?:qp|points|quest points)/i);
+        const pointsMatch = prizeLower.match(/(\d+)\s*(?:qp|points?|quest\s*points?)/i);
         const xpMatch = prizeLower.match(/(\d+)\s*xp/i);
 
         const wonPoints = pointsMatch ? parseInt(pointsMatch[1], 10) : 0;
@@ -3507,31 +3607,40 @@ export default {
           if (wonXp > 0) payouts.push(`+${wonXp.toLocaleString()} XP`);
           prizePayoutText = `\n\n⚡ **Automated Payout:** ${payouts.join(' and ')} has been automatically credited to <@${winnerId}>'s account!`;
         } else {
-          // External currency / Crypto prize (e.g. USDC, USDT, ETH, SOL, Nitro, etc.)
-          const { data: winnerWallet } = await supabase
-            .from('user_integrations')
-            .select('provider_username, provider_user_id')
-            .eq('discord_id', winnerId)
-            .eq('provider', 'wallet')
-            .maybeSingle();
+          // Check if prize explicitly indicates a crypto / web3 payout
+          const isCryptoPrize = /\b(usdt|usdc|eth|ethereum|sol|solana|btc|bitcoin|matic|polygon|bnb|crypto|wallet|token|tokens|airdrop)\b/i.test(prizeLower);
 
-          if (winnerWallet) {
-            prizePayoutText =
-              `\n\n👛 **Winner's Linked Wallet:** \`${winnerWallet.provider_username}\` (${winnerWallet.provider_user_id || 'EVM'})\n` +
-              `📢 **Payout Instructions:** Server Admin, please disburse **${raffle.prize}** to the address above!`;
+          if (isCryptoPrize) {
+            const { data: winnerWallet } = await supabase
+              .from('user_integrations')
+              .select('provider_username, provider_user_id')
+              .eq('discord_id', winnerId)
+              .eq('provider', 'wallet')
+              .maybeSingle();
+
+            if (winnerWallet) {
+              prizePayoutText =
+                `\n\n👛 **Winner's Linked Wallet:** \`${winnerWallet.provider_username}\` (${winnerWallet.provider_user_id || 'EVM'})\n` +
+                `📢 **Payout Instructions:** Server Admin, please disburse **${raffle.prize}** to the address above!`;
+            } else {
+              prizePayoutText =
+                `\n\n⚠️ **Action Required:** <@${winnerId}> has not linked a payout wallet yet!\n` +
+                `👉 Click the **Submit Payout Wallet** button below to submit your address for **${raffle.prize}**!`;
+
+              const claimRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`claim_raffle_wallet_${raffleId}_${winnerId}`)
+                  .setLabel('Submit Payout Wallet')
+                  .setEmoji('👛')
+                  .setStyle(ButtonStyle.Success)
+              );
+              components = [claimRow];
+            }
           } else {
+            // General community / server reward (e.g. Lucky Hour, Discord Nitro, Role, Steam Key, etc.)
             prizePayoutText =
-              `\n\n⚠️ **Action Required:** <@${winnerId}> has not linked a payout wallet yet!\n` +
-              `👉 Click the **Submit Payout Wallet** button below to submit your address for **${raffle.prize}**!`;
-
-            const claimRow = new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`claim_raffle_wallet_${raffleId}_${winnerId}`)
-                .setLabel('Submit Payout Wallet')
-                .setEmoji('👛')
-                .setStyle(ButtonStyle.Success)
-            );
-            components = [claimRow];
+              `\n\n🎁 **Prize Claim:** Congratulations <@${winnerId}>! Server Admin, please contact the winner to disburse/activate **${raffle.prize}**!`;
+            components = [];
           }
         }
 
@@ -3555,20 +3664,19 @@ export default {
         const raffleId = interaction.values[0];
         await interaction.deferReply({ ephemeral: true });
 
-        const result = await executeRaffleTicketPurchase({
+        const panel = await buildRafflePanel({
           guildId,
           discordId,
           raffleId,
-          count: 1,
         });
 
-        if (result.error) {
-          return interaction.editReply({ content: result.error });
+        if (panel.error) {
+          return interaction.editReply({ content: panel.error });
         }
 
         return interaction.editReply({
-          embeds: [result.embed],
-          components: [result.row],
+          embeds: [panel.embed],
+          components: [panel.row],
         });
       }
 
