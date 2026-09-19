@@ -13,8 +13,11 @@ const tweetCommand = {
     .addIntegerOption(option =>
       option.setName('points').setDescription('Points awarded per verified action (default: 25)').setRequired(false).setMinValue(1)
     )
+    .addStringOption(option =>
+      option.setName('duration').setDescription('Duration of quest: e.g. "30m", "45m", "2h", "24h", "3d" (default: 24h)').setRequired(false)
+    )
     .addIntegerOption(option =>
-      option.setName('expire_hours').setDescription('Hours until engagement quest expires (default: 24)').setRequired(false).setMinValue(1).setMaxValue(168)
+      option.setName('expire_hours').setDescription('Hours until engagement quest expires (alternative: use duration)').setRequired(false).setMinValue(1).setMaxValue(168)
     )
     .addStringOption(option =>
       option.setName('buttons').setDescription('Buttons to include (e.g. "like, rt, comment" or "like, rt" or "none")').setRequired(false)

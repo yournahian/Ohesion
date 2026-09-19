@@ -128,9 +128,9 @@ export default {
 
         const pointsHoursInput = new TextInputBuilder()
           .setCustomId('input_points_hours')
-          .setLabel('Points & Duration (QP, Hours)')
+          .setLabel('Points & Duration (e.g. 25, 30m or 24h)')
           .setValue('25, 24h')
-          .setPlaceholder('e.g. 25, 24h (Points, Expiration in hours)')
+          .setPlaceholder('e.g. 25, 30m or 25, 24h (Points, Duration)')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -1428,14 +1428,28 @@ export default {
         const { username, tweetId, cleanUrl } = parsed;
 
         let points = 25;
-        let expireHours = 24;
+        let durationMs = 24 * 60 * 60 * 1000;
         if (pointsHoursStr) {
           const parts = pointsHoursStr.split(/[,|\s]+/).filter(Boolean);
           if (parts[0]) points = parseInt(parts[0], 10) || 25;
-          if (parts[1]) expireHours = parseInt(parts[1].replace(/h/i, ''), 10) || 24;
+          if (parts[1]) {
+            const rawDur = parts[1].trim().toLowerCase();
+            const parsedMs = parseDuration(rawDur);
+            if (parsedMs) {
+              durationMs = parsedMs;
+            } else {
+              const num = parseInt(rawDur, 10);
+              if (!isNaN(num) && num > 0) {
+                durationMs = num * 60 * 60 * 1000;
+              }
+            }
+          }
         } else {
           if (rawPoints) points = parseInt(rawPoints, 10) || 25;
-          if (rawHours) expireHours = parseInt(rawHours, 10) || 24;
+          if (rawHours) {
+            const parsedMs = parseDuration(rawHours);
+            durationMs = parsedMs || (parseInt(rawHours, 10) || 24) * 60 * 60 * 1000;
+          }
         }
 
         // Fetch tweet metadata with media image/thumbnail and author avatar
@@ -1443,7 +1457,7 @@ export default {
         const authorDisplayName = tweetMeta?.authorName || `@${username}`;
         const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
 
-        const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
+        const expiresAtDate = new Date(Date.now() + durationMs);
         const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
         // Determine if thumbnail/image display is enabled (Default: true unless explicitly set to no/off/false)

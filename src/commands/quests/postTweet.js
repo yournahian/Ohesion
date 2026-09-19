@@ -28,13 +28,19 @@ export default {
         .setRequired(false)
         .setMinValue(1)
     )
+    .addStringOption(option =>
+      option
+        .setName('duration')
+        .setDescription('Duration of quest: e.g. "30m", "45m", "2h", "24h", "3d" (default: 24h)')
+        .setRequired(false)
+    )
     .addIntegerOption(option =>
       option
         .setName('expire_hours')
-        .setDescription('Hours until engagement quest expires (default: 24)')
+        .setDescription('Hours until engagement quest expires (alternative: use duration)')
         .setRequired(false)
         .setMinValue(1)
-        .setMaxValue(168) // up to 7 days
+        .setMaxValue(168)
     )
     .addStringOption(option =>
       option
@@ -98,6 +104,7 @@ export default {
 
     const { username, tweetId, cleanUrl } = parsed;
     const points = interaction.options.getInteger('points') || 25;
+    const rawDuration = interaction.options.getString('duration');
     const expireHours = interaction.options.getInteger('expire_hours') || 24;
     const buttonsOption = interaction.options.getString('buttons') || 'all';
     const showImage = interaction.options.getBoolean('show_image') ?? true;
@@ -113,8 +120,24 @@ export default {
     const authorDisplayName = tweetMeta?.authorName || `@${username}`;
     const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
 
-    // Calculate expiration timestamp
-    const expiresAtDate = new Date(Date.now() + expireHours * 60 * 60 * 1000);
+    // Calculate expiration timestamp (supporting minutes like 30m, 45m, 1h, 24h, 3d)
+    let durationMs = 24 * 60 * 60 * 1000;
+    if (rawDuration) {
+      const match = rawDuration.trim().toLowerCase().match(/^(\d+)\s*(m|h|d)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (match[2] === 'm') durationMs = val * 60 * 1000;
+        else if (match[2] === 'h') durationMs = val * 60 * 60 * 1000;
+        else if (match[2] === 'd') durationMs = val * 24 * 60 * 60 * 1000;
+      } else {
+        const num = parseInt(rawDuration, 10);
+        if (!isNaN(num) && num > 0) durationMs = num * 60 * 60 * 1000;
+      }
+    } else {
+      durationMs = expireHours * 60 * 60 * 1000;
+    }
+
+    const expiresAtDate = new Date(Date.now() + durationMs);
     const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
     // Resolve tag mention (e.g. @Socials, @everyone, @here, or role ID / name)
