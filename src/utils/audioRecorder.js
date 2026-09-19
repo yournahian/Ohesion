@@ -50,6 +50,12 @@ const RECORDINGS_BASE_DIR = path.join(__dirname, '..', 'data', 'recordings');
 // Active recording sessions: guildId -> RecordingSession
 const activeSessions = new Map();
 
+// 48,000 Hz, 16-bit, Stereo = 4 bytes per sample (Left 16-bit + Right 16-bit)
+// 1 second = 48,000 * 4 = 192,000 bytes
+// 1 Opus frame = 20ms = 960 samples = 960 * 4 = 3,840 bytes
+const FRAME_BYTES = 3840;
+const FRAME_MS = 20;
+
 /**
  * Creates a standard 44-byte WAV header for 48kHz, 16-bit, stereo PCM audio
  */
@@ -88,6 +94,100 @@ function pcmToWav(pcmFilePath, wavFilePath) {
 }
 
 /**
+ * Sets up a permanent, studio-grade audio decoder stream for a speaker.
+ * Maintains one persistent decoder per user to preserve Opus prediction filters
+ * and pads silence in exact 20ms frame multiples (3,840 bytes) to prevent byte misalignment.
+ */
+function setupSpeakerStream(session, user) {
+  const userId = user.id;
+  if (session.speakers.has(userId) || session.isStopping) return;
+
+  const username = user.username || `User_${userId.slice(-4)}`;
+  const sanitizedUsername = username.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const pcmPath = path.join(session.sessionDir, `${sanitizedUsername}.pcm`);
+  const wavPath = path.join(session.sessionDir, `${sanitizedUsername}.wav`);
+
+  const fileStream = fs.createWriteStream(pcmPath);
+
+  let opusStream;
+  try {
+    // Subscribe ONCE with EndBehaviorType.Manual so stream stays open for the whole session
+    opusStream = session.receiver.subscribe(userId, {
+      end: {
+        behavior: EndBehaviorType.Manual,
+      },
+    });
+  } catch (err) {
+    console.warn(`[SUBSCRIBE ERROR] (${username}):`, err.message);
+    return;
+  }
+
+  // Create ONE persistent decoder for the entire recording session
+  const decoder = new prism.opus.Decoder({
+    rate: 48000,
+    channels: 2,
+    frameSize: 960,
+  });
+
+  const speaker = {
+    userId,
+    username,
+    sanitizedUsername,
+    pcmPath,
+    wavPath,
+    writtenBytes: 0,
+    lastChunkTime: null,
+    fileStream,
+    opusStream,
+    decoder,
+  };
+
+  session.speakers.set(userId, speaker);
+
+  opusStream.pipe(decoder);
+
+  decoder.on('data', (pcmChunk) => {
+    if (session.isStopping) return;
+
+    const now = Date.now();
+
+    if (!speaker.lastChunkTime) {
+      // First audio chunk: pad silence from session start up to this moment
+      const elapsedMs = Math.max(0, now - session.startedAt);
+      const initialFrames = Math.floor(elapsedMs / FRAME_MS);
+      if (initialFrames > 0 && initialFrames < 18000) {
+        const initialSilence = Buffer.alloc(initialFrames * FRAME_BYTES);
+        speaker.fileStream.write(initialSilence);
+        speaker.writtenBytes += initialSilence.length;
+      }
+    } else {
+      // Subsequent audio chunk: check if there was a pause between words/sentences
+      const gapMs = now - speaker.lastChunkTime;
+      if (gapMs > 35) { // gap > 1.5 frames
+        const missingFrames = Math.floor((gapMs - FRAME_MS) / FRAME_MS);
+        if (missingFrames > 0 && missingFrames < 18000) {
+          const gapSilence = Buffer.alloc(missingFrames * FRAME_BYTES);
+          speaker.fileStream.write(gapSilence);
+          speaker.writtenBytes += gapSilence.length;
+        }
+      }
+    }
+
+    speaker.lastChunkTime = now;
+    speaker.fileStream.write(pcmChunk);
+    speaker.writtenBytes += pcmChunk.length;
+  });
+
+  decoder.on('error', (err) => {
+    console.warn(`[AUDIO DECODER ERROR] (${username}):`, err.message);
+  });
+
+  opusStream.on('error', (err) => {
+    console.warn(`[OPUS STREAM ERROR] (${username}):`, err.message);
+  });
+}
+
+/**
  * Starts a multi-track recording session in a voice channel
  */
 export async function startRecording({ voiceChannel, client, mode = 'both', initiatedBy }) {
@@ -106,7 +206,7 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf: false,
-    selfMute: false,
+    selfMute: false, // Must be false so Discord keeps 2-way UDP socket active
   });
 
   try {
@@ -138,93 +238,27 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     connection,
     silencePlayer,
     receiver: connection.receiver,
-    speakers: new Map(), // userId -> { username, displayName, pcmPath, wavPath, writtenBytes, fileStream }
-    activeSubscriptions: new Set(),
+    speakers: new Map(), // userId -> speaker
     isStopping: false,
   };
 
-  const BYTES_PER_SECOND = 48000 * 2 * 2; // 48kHz * 2 channels * 2 bytes = 192,000 bytes/sec
+  // Pre-subscribe to all members currently in the voice channel
+  for (const [, member] of voiceChannel.members.entries()) {
+    if (member.user && !member.user.bot) {
+      setupSpeakerStream(session, member.user);
+    }
+  }
 
-  // Listen to speaking events
+  // Subscribe to any member who starts speaking or joins later
   session.receiver.speaking.on('start', (userId) => {
     if (session.isStopping) return;
-    if (session.activeSubscriptions.has(userId)) return;
+    if (session.speakers.has(userId)) return;
 
-    // Fetch user details
     const member = voiceChannel.guild.members.cache.get(userId);
-    const username = member?.user?.username || `User_${userId.slice(-4)}`;
-    const sanitizedUsername = username.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const user = member?.user || { id: userId, username: `User_${userId.slice(-4)}` };
+    if (user.bot) return;
 
-    let speaker = session.speakers.get(userId);
-    if (!speaker) {
-      const pcmPath = path.join(sessionDir, `${sanitizedUsername}.pcm`);
-      const wavPath = path.join(sessionDir, `${sanitizedUsername}.wav`);
-      speaker = {
-        userId,
-        username,
-        sanitizedUsername,
-        pcmPath,
-        wavPath,
-        writtenBytes: 0,
-        fileStream: fs.createWriteStream(pcmPath, { flags: 'a' }),
-      };
-      session.speakers.set(userId, speaker);
-    }
-
-    // Time alignment padding: fill silence from beginning of recording up to this moment
-    const elapsedSeconds = (Date.now() - session.startedAt) / 1000;
-    const expectedBytes = Math.floor(elapsedSeconds * BYTES_PER_SECOND);
-    if (expectedBytes > speaker.writtenBytes) {
-      let remainingSilence = expectedBytes - speaker.writtenBytes;
-      while (remainingSilence > 0) {
-        const chunkSize = Math.min(remainingSilence, BYTES_PER_SECOND * 10);
-        speaker.fileStream.write(Buffer.alloc(chunkSize));
-        speaker.writtenBytes += chunkSize;
-        remainingSilence -= chunkSize;
-      }
-    }
-
-    session.activeSubscriptions.add(userId);
-
-    try {
-      // Subscribe to Opus audio stream
-      const opusStream = session.receiver.subscribe(userId, {
-        end: {
-          behavior: EndBehaviorType.AfterSilence,
-          duration: 1000,
-        },
-      });
-
-      const decoder = new prism.opus.Decoder({
-        rate: 48000,
-        channels: 2,
-        frameSize: 960,
-      });
-
-      opusStream.pipe(decoder);
-
-      decoder.on('data', (pcmChunk) => {
-        if (session.isStopping) return;
-        speaker.fileStream.write(pcmChunk);
-        speaker.writtenBytes += pcmChunk.length;
-      });
-
-      decoder.on('error', (err) => {
-        console.warn(`[AUDIO DECODER ERROR] (${username}):`, err.message);
-      });
-
-      opusStream.on('error', (err) => {
-        console.warn(`[OPUS STREAM ERROR] (${username}):`, err.message);
-        session.activeSubscriptions.delete(userId);
-      });
-
-      opusStream.on('end', () => {
-        session.activeSubscriptions.delete(userId);
-      });
-    } catch (decoderErr) {
-      console.error(`[AUDIO DECODER INIT ERROR] (${username}):`, decoderErr);
-      session.activeSubscriptions.delete(userId);
-    }
+    setupSpeakerStream(session, user);
   });
 
   // Handle unexpected disconnects
@@ -247,7 +281,8 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
 }
 
 /**
- * Mix multiple WAV files into a single Master MP3 using FFmpeg amix
+ * Mix multiple WAV files into a single Master MP3 using FFmpeg amix with normalize=0
+ * to prevent volume attenuation when multiple speakers are present.
  */
 async function mixMasterTrack(inputWavs, outputMp3Path) {
   return new Promise((resolve, reject) => {
@@ -256,7 +291,6 @@ async function mixMasterTrack(inputWavs, outputMp3Path) {
     }
 
     if (inputWavs.length === 1) {
-      // Single speaker: direct encode to MP3
       ffmpeg(inputWavs[0])
         .audioCodec('libmp3lame')
         .audioBitrate('192k')
@@ -266,7 +300,7 @@ async function mixMasterTrack(inputWavs, outputMp3Path) {
       return;
     }
 
-    // Multiple speakers: combine with amix filter
+    // Multiple speakers: combine with amix filter with normalize=0 so volume is NOT divided by N
     const command = ffmpeg();
     for (const wav of inputWavs) {
       command.input(wav);
@@ -279,7 +313,7 @@ async function mixMasterTrack(inputWavs, outputMp3Path) {
           options: {
             inputs: inputWavs.length,
             duration: 'longest',
-            dropout_transition: 2,
+            normalize: 0,
           },
         },
       ])
@@ -328,21 +362,40 @@ export async function stopRecording(guildId) {
   session.isStopping = true;
   activeSessions.delete(guildId);
 
-  const durationSeconds = Math.max(1, Math.round((Date.now() - session.startedAt) / 1000));
-  const BYTES_PER_SECOND = 48000 * 2 * 2;
-  const targetTotalBytes = durationSeconds * BYTES_PER_SECOND;
+  // Stop silence keep-alive player
+  if (session.silencePlayer) {
+    try {
+      session.silencePlayer.stop();
+    } catch {}
+  }
 
-  // Finalize all speaker streams with tail silence padding to ensure identical duration
+  // Destroy Discord voice connection
+  try {
+    session.connection.destroy();
+  } catch (err) {
+    console.warn('[VOICE DESTROY ERROR]:', err.message);
+  }
+
+  const durationSeconds = Math.max(1, Math.round((Date.now() - session.startedAt) / 1000));
+  const targetTotalBytes = durationSeconds * 192000;
+
+  // Finalize all speaker streams with frame-aligned tail silence
   const wavFiles = [];
   const speakersData = [];
 
-  for (const [userId, speaker] of session.speakers.entries()) {
+  for (const [, speaker] of session.speakers.entries()) {
     try {
+      if (speaker.opusStream) speaker.opusStream.destroy();
+      if (speaker.decoder) speaker.decoder.destroy();
+
       if (targetTotalBytes > speaker.writtenBytes) {
-        const remainingSilence = targetTotalBytes - speaker.writtenBytes;
-        const silence = Buffer.alloc(Math.min(remainingSilence, BYTES_PER_SECOND * 120));
-        speaker.fileStream.write(silence);
-        speaker.writtenBytes += remainingSilence;
+        const remainingBytes = targetTotalBytes - speaker.writtenBytes;
+        const tailFrames = Math.floor(remainingBytes / FRAME_BYTES);
+        if (tailFrames > 0 && tailFrames < 18000) {
+          const tailSilence = Buffer.alloc(tailFrames * FRAME_BYTES);
+          speaker.fileStream.write(tailSilence);
+          speaker.writtenBytes += tailSilence.length;
+        }
       }
       speaker.fileStream.end();
     } catch (err) {
@@ -357,28 +410,15 @@ export async function stopRecording(guildId) {
       if (fs.existsSync(speaker.wavPath) && fs.statSync(speaker.wavPath).size > 44) {
         wavFiles.push(speaker.wavPath);
         speakersData.push({
-          userId,
+          userId: speaker.userId,
           username: speaker.username,
           wavPath: speaker.wavPath,
+          pcmPath: speaker.pcmPath,
         });
       }
     } catch (err) {
       console.warn(`[PCM TO WAV ERROR] ${speaker.username}:`, err.message);
     }
-  }
-
-  // Stop silence keep-alive player
-  if (session.silencePlayer) {
-    try {
-      session.silencePlayer.stop();
-    } catch {}
-  }
-
-  // Destroy Discord voice connection
-  try {
-    session.connection.destroy();
-  } catch (err) {
-    console.warn('[VOICE DESTROY ERROR]:', err.message);
   }
 
   const sessionMeta = {
@@ -404,7 +444,7 @@ export async function stopRecording(guildId) {
     filesToAttach: [],
   };
 
-  // 1. Audio Processing (if mode is 'audio' or 'both', or needed for transcription in 'script')
+  // 1. Audio Processing (mix master track)
   const masterMp3Path = path.join(session.sessionDir, 'Master_Podcast_Mix.mp3');
   if (wavFiles.length > 0) {
     try {
@@ -468,7 +508,6 @@ export async function stopRecording(guildId) {
       fs.writeFileSync(notesPath, notesResult.fullMarkdown, 'utf8');
       deliverables.notesPath = notesPath;
     } else if (!aiProvider && session.mode === 'script') {
-      // Admin asked for script only, but no AI key was set
       deliverables.dialogueScript = '# Transcript Unavailable\n\nNo AI API key (GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY) was configured in .env.';
       deliverables.meetingNotesMarkdown = deliverables.dialogueScript;
     }
@@ -541,15 +580,17 @@ export function cancelRecording(guildId) {
   session.isStopping = true;
   activeSessions.delete(guildId);
 
-  for (const speaker of session.speakers.values()) {
-    try {
-      speaker.fileStream.end();
-    } catch {}
-  }
-
   if (session.silencePlayer) {
     try {
       session.silencePlayer.stop();
+    } catch {}
+  }
+
+  for (const speaker of session.speakers.values()) {
+    try {
+      if (speaker.opusStream) speaker.opusStream.destroy();
+      if (speaker.decoder) speaker.decoder.destroy();
+      speaker.fileStream.end();
     } catch {}
   }
 
