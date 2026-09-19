@@ -45,6 +45,56 @@ export function getMatchById(matchId) {
 }
 
 /**
+ * Parses duration strings into seconds, supporting s, m, h, d:
+ * e.g. "45s", "5m", "30m", "2h", "24h", "1d", "3d".
+ */
+export function parseBattleDuration(str) {
+  if (!str) return 45;
+  if (typeof str === 'number') return Math.max(15, str);
+
+  const trimmed = str.trim().toLowerCase();
+  const match = trimmed.match(/^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/);
+  if (!match) {
+    const num = parseInt(trimmed, 10);
+    return !isNaN(num) && num > 0 ? Math.max(15, num) : 45;
+  }
+
+  const val = parseInt(match[1], 10);
+  const unit = match[2] || 's';
+
+  let seconds = val;
+  if (unit.startsWith('d')) {
+    seconds = val * 86400; // days to seconds
+  } else if (unit.startsWith('h')) {
+    seconds = val * 3600; // hours to seconds
+  } else if (unit.startsWith('m')) {
+    seconds = val * 60; // minutes to seconds
+  }
+
+  // Minimum 15 seconds, maximum 7 days (604,800 seconds)
+  return Math.max(15, Math.min(604800, seconds));
+}
+
+/**
+ * Formats seconds into a human-readable string (e.g. "45 Seconds", "5 Minutes", "2 Hours", "1 Day")
+ */
+export function formatDurationDisplay(seconds) {
+  if (seconds >= 86400) {
+    const d = Math.round((seconds / 86400) * 10) / 10;
+    return `${d} Day${d === 1 ? '' : 's'}`;
+  }
+  if (seconds >= 3600) {
+    const h = Math.round((seconds / 3600) * 10) / 10;
+    return `${h} Hour${h === 1 ? '' : 's'}`;
+  }
+  if (seconds >= 60) {
+    const m = Math.round((seconds / 60) * 10) / 10;
+    return `${m} Minute${m === 1 ? '' : 's'}`;
+  }
+  return `${seconds} Seconds`;
+}
+
+/**
  * Creates a new Chaos Clash Battle Royale match.
  */
 export function createBattleMatch({
@@ -58,13 +108,17 @@ export function createBattleMatch({
   prizeXp = 250,
 }) {
   const matchId = 'btl_' + Date.now().toString(36);
+  const parsedDuration = typeof signupDurationSec === 'string'
+    ? parseBattleDuration(signupDurationSec)
+    : Math.max(15, Math.min(604800, parseInt(signupDurationSec, 10) || 45));
+
   const match = {
     matchId,
     guildId,
     channelId,
     createdBy,
     mode: mode.toLowerCase() === 'classic' ? 'classic' : 'interactive',
-    signupDurationSec: Math.max(15, Math.min(300, parseInt(signupDurationSec, 10) || 45)),
+    signupDurationSec: parsedDuration,
     entryFee: Math.max(0, parseInt(entryFee, 10) || 0),
     prizePool: Math.max(50, parseInt(prizePool, 10) || 500),
     prizeXp: Math.max(25, parseInt(prizeXp, 10) || 250),

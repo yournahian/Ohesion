@@ -4,6 +4,7 @@ import {
   buildLobbyPayload,
   startBattleSimulation,
   getActiveMatch,
+  parseBattleDuration,
 } from '../../modules/battle/battleEngine.js';
 
 export default {
@@ -20,13 +21,11 @@ export default {
           { name: 'Classic Mode (100% RNG Giveaway)', value: 'classic' }
         )
     )
-    .addIntegerOption((option) =>
+    .addStringOption((option) =>
       option
-        .setName('signup_seconds')
-        .setDescription('Sign-up window countdown duration in seconds (default: 45)')
+        .setName('duration')
+        .setDescription('Sign-up window countdown duration: e.g. 45s, 5m, 30m, 1h, 1d (default: 5m)')
         .setRequired(false)
-        .setMinValue(15)
-        .setMaxValue(300)
     )
     .addIntegerOption((option) =>
       option
@@ -59,7 +58,8 @@ export default {
     await interaction.deferReply({ ephemeral: false });
 
     const mode = interaction.options.getString('mode') || 'interactive';
-    const signupDurationSec = interaction.options.getInteger('signup_seconds') || 45;
+    const durationInput = interaction.options.getString('duration') || '5m';
+    const signupDurationSec = parseBattleDuration(durationInput);
     const prizePool = interaction.options.getInteger('prize') || 500;
     const entryFee = interaction.options.getInteger('entry_fee') || 0;
 

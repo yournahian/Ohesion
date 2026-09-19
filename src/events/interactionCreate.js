@@ -51,6 +51,8 @@ import {
   resolveQTEAction,
   getActiveMatch,
   getMatchById,
+  parseBattleDuration,
+  formatDurationDisplay,
 } from '../modules/battle/battleEngine.js';
 import {
   BATTLE_COSMETICS_CATALOG,
@@ -347,8 +349,9 @@ export default {
 
         const durationInput = new TextInputBuilder()
           .setCustomId('input_battle_duration')
-          .setLabel('Sign-up Duration in Seconds (e.g. 45)')
-          .setValue('45')
+          .setLabel('Sign-up Duration (e.g. 45s, 5m, 1h, 1d)')
+          .setValue('5m')
+          .setPlaceholder('e.g. 45s, 5m, 30m, 2h, 24h, 1d')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -2697,8 +2700,8 @@ export default {
 
         const rawMode = (interaction.fields.getTextInputValue('input_battle_mode') || 'interactive').trim().toLowerCase();
         const mode = rawMode === 'classic' ? 'classic' : 'interactive';
-        const durationStr = interaction.fields.getTextInputValue('input_battle_duration') || '45';
-        const durationSec = Math.max(15, Math.min(300, parseInt(durationStr, 10) || 45));
+        const durationStr = interaction.fields.getTextInputValue('input_battle_duration') || '5m';
+        const durationSec = parseBattleDuration(durationStr);
 
         const prizeStr = interaction.fields.getTextInputValue('input_battle_prize') || '500, 250';
         const parts = prizeStr.split(/[,|\s]+/).filter(Boolean);
@@ -2760,7 +2763,7 @@ export default {
         return interaction.editReply({
           content:
             `✅ **Chaos Clash Match Created!** (${mode.toUpperCase()} MODE)\n` +
-            `• Sign-up Window: **${durationSec}s**\n` +
+            `• Sign-up Window: **${formatDurationDisplay(durationSec)}** (Closes <t:${Math.floor((Date.now() + durationSec * 1000) / 1000)}:R>)\n` +
             `• Grand Prize: **${prizePool.toLocaleString()} QP** & **+${prizeXp} XP**\n` +
             `• Entry Fee: **${entryFee > 0 ? `${entryFee} QP` : 'Free'}**\n\n` +
             `Fighters can join using the **[ ⚔️ Enter Clash ]** button!`,
