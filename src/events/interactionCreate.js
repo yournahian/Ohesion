@@ -2737,20 +2737,43 @@ export default {
         const guild =
           interaction.guild ||
           (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
-        const voiceChannels = guild ? guild.channels.cache.filter((c) => c.isVoiceBased()) : [];
+
+        if (!guild) {
+          return interaction.editReply({ content: '❌ Could not retrieve server details.' });
+        }
+
+        // Ensure channels are fetched to populate voice channels
+        await guild.channels.fetch().catch(() => null);
+
         const rewardedMemberIds = [];
 
+        // 1. Check guild voiceStates directly (primary)
+        if (guild.voiceStates?.cache) {
+          for (const [memberId, voiceState] of guild.voiceStates.cache) {
+            if (voiceState.channelId) {
+              const member = voiceState.member || (await guild.members.fetch(memberId).catch(() => null));
+              if (member && !member.user.bot && !rewardedMemberIds.includes(memberId)) {
+                rewardedMemberIds.push(memberId);
+              }
+            }
+          }
+        }
+
+        // 2. Check voice channels cache as secondary verification
+        const voiceChannels = guild.channels.cache.filter((c) => c.isVoiceBased());
         for (const [_, vc] of voiceChannels) {
-          for (const [memberId, member] of vc.members) {
-            if (!member.user.bot && !rewardedMemberIds.includes(memberId)) {
-              rewardedMemberIds.push(memberId);
+          if (vc.members) {
+            for (const [memberId, member] of vc.members) {
+              if (!member.user.bot && !rewardedMemberIds.includes(memberId)) {
+                rewardedMemberIds.push(memberId);
+              }
             }
           }
         }
 
         if (rewardedMemberIds.length === 0) {
           return interaction.editReply({
-            content: '⚠️ No active members found in any voice channels right now.',
+            content: '⚠️ No active members found in any voice channels right now. (Make sure members are connected to a voice channel).',
           });
         }
 
