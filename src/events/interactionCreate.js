@@ -92,6 +92,109 @@ function parseDuration(str) {
 }
 
 /**
+ * Processes purchasing one or more tickets for a raffle and builds the interactive interface.
+ */
+async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count = 1 }) {
+  const { data: raffle } = await supabase
+    .from('raffles')
+    .select('*')
+    .eq('raffle_id', raffleId)
+    .eq('guild_id', guildId)
+    .maybeSingle();
+
+  if (!raffle || !raffle.is_active || new Date(raffle.end_time) < new Date()) {
+    return { error: '❌ This raffle is inactive or has already ended.' };
+  }
+
+  const costPerTicket = Number(raffle.cost);
+  const totalCost = costPerTicket * count;
+
+  const { data: userRecord } = await supabase
+    .from('users')
+    .select('total_points')
+    .eq('guild_id', guildId)
+    .eq('discord_id', discordId)
+    .maybeSingle();
+
+  const userPoints = Number(userRecord?.total_points || 0);
+  if (userPoints < totalCost) {
+    return {
+      error: `❌ Insufficient Quest Points! You need **${totalCost.toLocaleString()} QP** for ${count} ticket(s) (${costPerTicket} QP each), but you only have **${userPoints.toLocaleString()} QP**.`,
+    };
+  }
+
+  // Deduct points
+  const remainingPoints = userPoints - totalCost;
+  await supabase
+    .from('users')
+    .update({ total_points: remainingPoints })
+    .eq('guild_id', guildId)
+    .eq('discord_id', discordId);
+
+  // Upsert entry
+  const { data: existingEntry } = await supabase
+    .from('raffle_entries')
+    .select('*')
+    .eq('raffle_id', raffleId)
+    .eq('discord_id', discordId)
+    .maybeSingle();
+
+  let totalTicketsOwned = count;
+  if (existingEntry) {
+    totalTicketsOwned = existingEntry.tickets_bought + count;
+    await supabase
+      .from('raffle_entries')
+      .update({ tickets_bought: totalTicketsOwned })
+      .eq('entry_id', existingEntry.entry_id);
+  } else {
+    await supabase.from('raffle_entries').insert({
+      raffle_id: raffleId,
+      discord_id: discordId,
+      tickets_bought: count,
+    });
+  }
+
+  const endTimestampSec = Math.floor(new Date(raffle.end_time).getTime() / 1000);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x06d6a0)
+    .setTitle(`🎟️ Ticket Purchased: ${raffle.prize}`)
+    .setDescription(
+      `✅ You successfully bought **${count.toLocaleString()} ticket${count > 1 ? 's' : ''}** for **${totalCost.toLocaleString()} QP**!\n\n` +
+      `🎟️ **Your Total Tickets in Pool:** **${totalTicketsOwned.toLocaleString()} ticket${totalTicketsOwned > 1 ? 's' : ''}**\n` +
+      `🪙 **Remaining Balance:** **${remainingPoints.toLocaleString()} QP**\n` +
+      `⏳ **Raffle Ends:** <t:${endTimestampSec}:R> (<t:${endTimestampSec}:f>)\n\n` +
+      `*Want to increase your chances? Buy additional tickets directly below:*`
+    )
+    .setFooter({ text: `Raffle ID: ${raffle.raffle_id} • 1 Ticket = ${costPerTicket} QP` });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`raffle_buy_${raffleId}_1`)
+      .setLabel('+1 Ticket')
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`raffle_buy_${raffleId}_5`)
+      .setLabel('+5 Tickets')
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`raffle_buy_${raffleId}_10`)
+      .setLabel('+10 Tickets')
+      .setEmoji('🎟️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`raffle_buy_custom_${raffleId}`)
+      .setLabel('Custom Quantity')
+      .setEmoji('🔢')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embed, row, raffle };
+}
+
+/**
  * Processes custom snippet lines:
  * - Resolves Discord role tags (e.g. @Socials, @Verified) to <@&roleId>
  * - Converts Twitter / X handle mentions (e.g. @goldfishggbr or @account) into clickable links [@handle](https://x.com/handle)
@@ -1046,12 +1149,15 @@ export default {
       if (customId === 'hub_raffles') {
         await interaction.deferReply({ ephemeral: true });
 
-        const { data: raffles } = await supabase
+        const { data: rawRaffles } = await supabase
           .from('raffles')
           .select('*')
           .eq('guild_id', guildId)
           .eq('is_active', true)
           .order('end_time', { ascending: true });
+
+        const now = new Date();
+        const raffles = (rawRaffles || []).filter(r => new Date(r.end_time) > now);
 
         if (!raffles || raffles.length === 0) {
           return interaction.editReply({ content: '🎁 There are no active raffles right now. Stay tuned!' });
@@ -1790,6 +1896,51 @@ export default {
           embeds: [embed],
           components: [new ActionRowBuilder().addComponents(selectMenu)],
         });
+      }
+
+      // --- RAFFLE: MULTI-TICKET QUICK PURCHASE BUTTONS (+1, +5, +10) ---
+      if (customId.startsWith('raffle_buy_') && !customId.startsWith('raffle_buy_custom_')) {
+        const parts = customId.split('_'); // ['raffle', 'buy', raffleId, count]
+        const raffleId = parts[2];
+        const count = parseInt(parts[3], 10) || 1;
+
+        await interaction.deferUpdate();
+
+        const result = await executeRaffleTicketPurchase({
+          guildId,
+          discordId,
+          raffleId,
+          count,
+        });
+
+        if (result.error) {
+          return interaction.followUp({ content: result.error, ephemeral: true });
+        }
+
+        return interaction.editReply({
+          embeds: [result.embed],
+          components: [result.row],
+        });
+      }
+
+      // --- RAFFLE: CUSTOM QUANTITY BUTTON (PROMPTS MODAL) ---
+      if (customId.startsWith('raffle_buy_custom_')) {
+        const raffleId = customId.replace('raffle_buy_custom_', '');
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_raffle_buy_${raffleId}`)
+          .setTitle('🎟️ Buy Multiple Raffle Tickets');
+
+        const countInput = new TextInputBuilder()
+          .setCustomId('input_raffle_ticket_count')
+          .setLabel('Ticket Quantity')
+          .setPlaceholder('Enter quantity (e.g. 25)')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(5)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(countInput));
+        return interaction.showModal(modal);
       }
     }
 
@@ -2931,6 +3082,39 @@ export default {
         });
       }
 
+      // --- MODAL: RAFFLE CUSTOM TICKET QUANTITY PURCHASE ---
+      if (modalId.startsWith('modal_raffle_buy_')) {
+        const raffleId = modalId.replace('modal_raffle_buy_', '');
+        await interaction.deferReply({ ephemeral: true });
+
+        const rawCount = interaction.fields.getTextInputValue('input_raffle_ticket_count').trim();
+        const count = parseInt(rawCount, 10);
+
+        if (isNaN(count) || count < 1) {
+          return interaction.editReply({ content: '❌ Please enter a valid number of tickets (minimum 1).' });
+        }
+
+        if (count > 1000) {
+          return interaction.editReply({ content: '❌ Maximum ticket purchase limit per transaction is 1,000.' });
+        }
+
+        const result = await executeRaffleTicketPurchase({
+          guildId,
+          discordId,
+          raffleId,
+          count,
+        });
+
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        return interaction.editReply({
+          embeds: [result.embed],
+          components: [result.row],
+        });
+      }
+
       // --- MODAL: CREATE CHAOS CLASH BATTLE ROYALE ---
       if (modalId === 'modal_create_battle') {
         await interaction.deferReply({ ephemeral: true });
@@ -3228,6 +3412,7 @@ export default {
 
         // Automated payout detection if prize specifies QP/points or XP
         let prizePayoutText = '';
+        let components = [];
         const prizeLower = (raffle.prize || '').toLowerCase();
         const pointsMatch = prizeLower.match(/(\d+)\s*(?:qp|points|quest points)/i);
         const xpMatch = prizeLower.match(/(\d+)\s*xp/i);
@@ -3313,63 +3498,20 @@ export default {
         const raffleId = interaction.values[0];
         await interaction.deferReply({ ephemeral: true });
 
-        const { data: raffle } = await supabase
-          .from('raffles')
-          .select('*')
-          .eq('raffle_id', raffleId)
-          .eq('guild_id', guildId)
-          .maybeSingle();
+        const result = await executeRaffleTicketPurchase({
+          guildId,
+          discordId,
+          raffleId,
+          count: 1,
+        });
 
-        if (!raffle || !raffle.is_active || new Date(raffle.end_time) < new Date()) {
-          return interaction.editReply({ content: '❌ This raffle is inactive or has already ended.' });
-        }
-
-        const totalCost = Number(raffle.cost);
-
-        const { data: userRecord } = await supabase
-          .from('users')
-          .select('total_points')
-          .eq('guild_id', guildId)
-          .eq('discord_id', discordId)
-          .maybeSingle();
-
-        const userPoints = Number(userRecord?.total_points || 0);
-        if (userPoints < totalCost) {
-          return interaction.editReply({
-            content: `❌ Insufficient Quest Points! You need **${totalCost} QP** for 1 ticket, but have **${userPoints} QP**.`,
-          });
-        }
-
-        // Deduct points
-        await supabase
-          .from('users')
-          .update({ total_points: userPoints - totalCost })
-          .eq('guild_id', guildId)
-          .eq('discord_id', discordId);
-
-        // Upsert entry
-        const { data: existingEntry } = await supabase
-          .from('raffle_entries')
-          .select('*')
-          .eq('raffle_id', raffleId)
-          .eq('discord_id', discordId)
-          .maybeSingle();
-
-        if (existingEntry) {
-          await supabase
-            .from('raffle_entries')
-            .update({ tickets_bought: existingEntry.tickets_bought + 1 })
-            .eq('entry_id', existingEntry.entry_id);
-        } else {
-          await supabase.from('raffle_entries').insert({
-            raffle_id: raffleId,
-            discord_id: discordId,
-            tickets_bought: 1,
-          });
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
         }
 
         return interaction.editReply({
-          content: `🎟️ **Ticket Purchased!** You bought 1 ticket for **${raffle.prize}** for **${totalCost} QP**.\nRemaining Balance: **${userPoints - totalCost} QP** 🪙. Good luck!`,
+          embeds: [result.embed],
+          components: [result.row],
         });
       }
 

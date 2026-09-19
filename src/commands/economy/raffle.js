@@ -141,7 +141,7 @@ export default {
     if (subcommand === 'list') {
       await interaction.deferReply();
 
-      const { data: raffles, error } = await supabase
+      const { data: rawRaffles, error } = await supabase
         .from('raffles')
         .select('*')
         .eq('guild_id', guildId)
@@ -152,6 +152,9 @@ export default {
         console.error('[RAFFLE LIST ERROR]:', error);
         return interaction.editReply({ content: '❌ Failed to fetch raffles.' });
       }
+
+      const now = new Date();
+      const raffles = (rawRaffles || []).filter(r => new Date(r.end_time) > now);
 
       if (!raffles || raffles.length === 0) {
         return interaction.editReply({ content: '🎁 There are no active raffles right now. Stay tuned!' });
