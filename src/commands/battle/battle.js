@@ -79,6 +79,7 @@ export default {
     const lobbyPayload = buildLobbyPayload(match);
     const lobbyMsg = await interaction.editReply(lobbyPayload);
     match.messageId = lobbyMsg.id;
+    await lobbyMsg.react('⚔️').catch(() => null);
 
     // Schedule countdown alerts (60s, 30s, 15s)
     scheduleCountdowns(match, interaction.client);

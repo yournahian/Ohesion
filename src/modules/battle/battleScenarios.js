@@ -99,3 +99,18 @@ export const TEAM_UP_SCENARIOS = [
   '🤝 | **{player1}** and **{player2}** formed a temporary alliance to flank and overpower **{player3}**!',
   '👥 | **{player1}** distracted **{player3}** while **{player2}** delivered the fatal strike from behind!',
 ];
+
+export const ION_STRIKE_SCENARIOS = [
+  '⚡ | An orbital EMP blast disabled technological systems across the sector!',
+  '🛰️ | The orbital defense grid fired an ion burst, rattling combatant defenses!',
+];
+
+export const GAS_STRIKE_SCENARIOS = [
+  '🧪 | Toxic nano-gas canisters detonated, flooding the lowlands with hazardous fumes!',
+  '☣️ | A biochemical dispersion cloud swept across the valley, forcing fighters to retreat!',
+];
+
+export const RELIC_POD_SCENARIOS = [
+  '💎 | An ancient celestial supply capsule crashed down, spilling glowing energy crystals!',
+  '✨ | Relic shards burst from an orbital pod, empowering nearby fighters with ancient blessing!',
+];

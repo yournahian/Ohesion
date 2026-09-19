@@ -141,6 +141,7 @@ export function createBattleMatch({
     revives: new Map(),
     mutator: null,
     qteActive: null,
+    firstBlood: null,
     eventLogs: [],
     currentTick: 0,
     messageId: null,
@@ -234,30 +235,44 @@ export function setPlayerArchetype(guildId, discordId, archetype) {
 }
 
 /**
- * Builds the Rumble Royale-style Lobby Embed & Join / Bet / Class Buttons (Matching Screenshot 3)
+ * Builds the Lobby Embed & Buttons (Matching Screenshot 1 for Classic and Screenshot 3 for Interactive)
  */
 export function buildLobbyPayload(match) {
   const isInteractive = match.mode === 'interactive';
+  const endTimestamp = Math.floor((match.createdAt + match.signupDurationSec * 1000) / 1000);
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
   const embed = new EmbedBuilder()
-    .setColor(0x57f287) // Rumble Royale Green
-    .setTitle(`Chaos Clash hosted by ${match.hostName || 'yournahian'}`)
+    .setColor(isInteractive ? 0xd90429 : 0x3498db)
+    .setTitle(`⚔️ Chaos Clash Battle Royale [${isInteractive ? 'Interactive' : 'Classic'} Mode]`)
     .setDescription(
-      `Random Era: 🗡️ ${isInteractive ? 'Interactive' : 'Classic'}\n\n` +
-      `Click the emoji below to join. Starting in ${formatDurationDisplay(match.signupDurationSec)}!`
+      `A new battle royale simulation has been authorized!\n\n` +
+      `🏛️ **Entry Fee:** ${match.entryFee > 0 ? `${match.entryFee} QP` : 'Free Entry'}\n` +
+      `🏆 **Prize Pool:** ${match.prizePool} QP & +${match.prizeXp} XP\n` +
+      `⏰ **Sign-up Closes:** <t:${endTimestamp}:R>\n\n` +
+      `👥 **Registered Fighters (${match.participants.size}):**`
     )
-    .setThumbnail(BATTLE_CREST_ICON);
+    .setFooter({
+      text: `Match ID: ${match.matchId} • Multi-Server Cluster Safe • Today at ${timeStr}`,
+    });
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`battle_join_${match.matchId}`)
-      .setLabel(String(match.participants.size))
+      .setLabel('Enter Clash')
       .setEmoji('⚔️')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`battle_bet_${match.matchId}`)
       .setLabel('Place Bet')
-      .setEmoji('🪙')
-      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🏛️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('battle_armory')
+      .setLabel('Armory & Titles')
+      .setEmoji('🏪')
+      .setStyle(ButtonStyle.Secondary)
   );
 
   const components = [row1];
@@ -268,7 +283,7 @@ export function buildLobbyPayload(match) {
         .setCustomId(`battle_pick_class_${match.matchId}`)
         .setLabel('Choose Archetype')
         .setEmoji('🛡️')
-        .setStyle(ButtonStyle.Secondary)
+        .setStyle(ButtonStyle.Primary)
     );
     components.push(row2);
   }
@@ -369,86 +384,232 @@ function pickRandom(arr) {
 }
 
 /**
- * Quick-Time Event (QTE) for Interactive Mode
+ * Quick-Time Event (QTE) for Interactive Mode - Multi-target ~70% Scaling with 5-Second Window
  */
 async function triggerLiveQTE(match, channel) {
-  const isSupplyDrop = Math.random() < 0.5;
+  const eventTypes = ['loot', 'cover', 'ion', 'gas', 'relic'];
+  const chosenType = pickRandom(eventTypes);
 
-  if (isSupplyDrop) {
-    const qteEmbed = new EmbedBuilder()
+  // Scaled capacity: ~70% of currently alive fighters
+  const maxSlots = Math.max(1, Math.round(match.alivePlayers.length * 0.7));
+
+  let qteEmbed = null;
+  let qteRow = null;
+
+  if (chosenType === 'loot') {
+    qteEmbed = new EmbedBuilder()
       .setColor(0xffb703)
-      .setTitle('📦 AIRDROP INCOMING! Supply Crate Touching Down!')
+      .setTitle('📦 AIRDROP INCOMING! Supply Pods Touching Down!')
       .setDescription(
-        'A high-tech prototype weapon crate has dropped into the arena!\n' +
-        '**First active fighter to claim the loot gains a +25% Combat Power Boost!**'
+        `A squadron of cargo drones has dropped prototype weapon crates!\n` +
+        `**Up to ${maxSlots} fighters can claim a supply crate (+25% Combat Power Boost)!**\n` +
+        `⏳ *React within 5 seconds to secure your crate!*`
       )
-      .setFooter({ text: 'Quick-Time Event Active (4s window)' });
+      .setFooter({ text: `Quick-Time Event Active • 5-second window (${maxSlots} crates available)` });
 
-    const lootRow = new ActionRowBuilder().addComponents(
+    qteRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`battle_qte_loot_${match.matchId}`)
-        .setLabel('Claim Loot')
+        .setLabel(`Claim Loot (0/${maxSlots})`)
         .setEmoji('📦')
         .setStyle(ButtonStyle.Success)
     );
-
-    match.qteActive = { type: 'loot', expiresAt: Date.now() + 4000, resolvedBy: null };
-    const qteMsg = await channel.send({ embeds: [qteEmbed], components: [lootRow] }).catch(() => null);
-
-    await sleep(4000);
-
-    lootRow.components[0].setDisabled(true);
-    if (qteMsg && typeof qteMsg.edit === 'function') await qteMsg.edit({ components: [lootRow] }).catch(() => null);
-
-    if (match.qteActive.resolvedBy) {
-      const luckyPlayer = match.participants.get(match.qteActive.resolvedBy);
-      if (luckyPlayer) {
-        luckyPlayer.hasSupplyBuff = true;
-        match.eventLogs.push(`📦 | **${luckyPlayer.displayName}** claimed the prototype airdrop weapon (+25% Combat Power)!`);
-      }
-    } else {
-      match.eventLogs.push(`💨 | The supply crate self-destructed before anyone could secure the payload!`);
-    }
-    match.qteActive = null;
-  } else {
-    const hazardEmbed = new EmbedBuilder()
-      .setColor(0xd90429)
-      .setTitle('🚨 AIR STRIKE IMMINENT! Seek Immediate Shelter!')
+  } else if (chosenType === 'relic') {
+    qteEmbed = new EmbedBuilder()
+      .setColor(0x00f5d4)
+      .setTitle('💎 CELESTIAL RELIC DROP! Ancient Cache Unsealed!')
       .setDescription(
-        'Heavy carpet bombing sirens are blaring across the sector!\n' +
-        '**Fighters have 4 seconds to dive for cover! Unshielded players face a 30% chance of sudden elimination!**'
+        `A glowing celestial relic pod has fallen from orbit!\n` +
+        `**Up to ${maxSlots} fighters can harvest relic shards (+15 bonus QP)!**\n` +
+        `⏳ *React within 5 seconds to extract relic shards!*`
       )
-      .setFooter({ text: 'Quick-Time Event Active (4s window)' });
+      .setFooter({ text: `Quick-Time Event Active • 5-second window (${maxSlots} slots available)` });
 
-    const coverRow = new ActionRowBuilder().addComponents(
+    qteRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`battle_qte_relic_${match.matchId}`)
+        .setLabel(`Extract Relic (0/${maxSlots})`)
+        .setEmoji('💎')
+        .setStyle(ButtonStyle.Success)
+    );
+  } else if (chosenType === 'cover') {
+    qteEmbed = new EmbedBuilder()
+      .setColor(0xd90429)
+      .setTitle('🚨 AIR STRIKE IMMINENT! Carpet Bombing Sector!')
+      .setDescription(
+        `Heavy bombers are saturating the sector with cluster munitions!\n` +
+        `**Fighters have 5 seconds to dive for cover! Unshielded players face elimination risk!**`
+      )
+      .setFooter({ text: 'Quick-Time Event Active • 5-second survival window' });
+
+    qteRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`battle_qte_cover_${match.matchId}`)
-        .setLabel('Move to Cover')
+        .setLabel('Dive for Cover (5s)')
         .setEmoji('🏃')
         .setStyle(ButtonStyle.Danger)
     );
+  } else if (chosenType === 'ion') {
+    qteEmbed = new EmbedBuilder()
+      .setColor(0x4361ee)
+      .setTitle('⚡ ORBITAL ION CANNON ARMED! EMP Pulse Sweeping Arena!')
+      .setDescription(
+        `An orbital defense satellite is firing an electromagnetic radiation wave!\n` +
+        `**Fighters have 5 seconds to deploy EMP shields or lose their tactical buffs!**`
+      )
+      .setFooter({ text: 'Quick-Time Event Active • 5-second reaction window' });
 
-    match.qteActive = { type: 'cover', expiresAt: Date.now() + 4000, coveredPlayers: new Set() };
-    const qteMsg = await channel.send({ embeds: [hazardEmbed], components: [coverRow] }).catch(() => null);
+    qteRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`battle_qte_ion_${match.matchId}`)
+        .setLabel('Deploy EMP Shield (5s)')
+        .setEmoji('🛡️')
+        .setStyle(ButtonStyle.Primary)
+    );
+  } else {
+    // gas
+    qteEmbed = new EmbedBuilder()
+      .setColor(0x2a9d8f)
+      .setTitle('🧪 BIO-NANITE GAS DETONATED! Toxic Cloud Expanding!')
+      .setDescription(
+        `Poisonous nano-gas canisters have ruptured across the battle zone!\n` +
+        `**Fighters have 5 seconds to equip respirators or risk sudden collapse!**`
+      )
+      .setFooter({ text: 'Quick-Time Event Active • 5-second survival window' });
 
-    await sleep(4000);
+    qteRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`battle_qte_gas_${match.matchId}`)
+        .setLabel('Equip Respirator (5s)')
+        .setEmoji('🤿')
+        .setStyle(ButtonStyle.Secondary)
+    );
+  }
 
-    coverRow.components[0].setDisabled(true);
-    if (qteMsg && typeof qteMsg.edit === 'function') await qteMsg.edit({ components: [coverRow] }).catch(() => null);
+  match.qteActive = {
+    type: chosenType,
+    expiresAt: Date.now() + 5000,
+    maxSlots,
+    reactedPlayers: new Set(),
+    row: qteRow,
+  };
 
-    const safePlayers = match.qteActive.coveredPlayers;
-    const unlucky = match.alivePlayers.filter((id) => !safePlayers.has(id));
+  const qteMsg = await channel.send({ embeds: [qteEmbed], components: [qteRow] }).catch(() => null);
+  match.qteActive.message = qteMsg;
 
-    for (const victimId of unlucky) {
-      if (Math.random() < 0.3 && match.alivePlayers.length > 1) {
+  // 5-Second Collection/Reaction Window
+  await sleep(5000);
+
+  // Disable interaction buttons
+  if (qteRow?.components?.[0]) {
+    qteRow.components[0].setDisabled(true);
+  }
+  if (qteMsg && typeof qteMsg.edit === 'function') {
+    await qteMsg.edit({ components: [qteRow] }).catch(() => null);
+  }
+
+  const reacted = match.qteActive.reactedPlayers;
+
+  if (chosenType === 'loot') {
+    if (reacted.size > 0) {
+      const luckyNames = [];
+      for (const id of reacted) {
+        const player = match.participants.get(id);
+        if (player && match.alivePlayers.includes(id)) {
+          player.hasSupplyBuff = true;
+          luckyNames.push(player.displayName);
+        }
+      }
+      match.eventLogs.push(`📦 | Supply crates secured by **${luckyNames.join(', ')}** (+25% Combat Power Boost)!`);
+    } else {
+      match.eventLogs.push(`💨 | The supply crates self-destructed before anyone could secure the payload!`);
+    }
+  } else if (chosenType === 'relic') {
+    if (reacted.size > 0) {
+      const relicNames = [];
+      for (const id of reacted) {
+        const player = match.participants.get(id);
+        if (player && match.alivePlayers.includes(id)) {
+          relicNames.push(player.displayName);
+          // Credit +15 bonus QP immediately
+          try {
+            const { data: rec } = await supabase
+              .from('users')
+              .select('total_points')
+              .eq('guild_id', match.guildId)
+              .eq('discord_id', id)
+              .maybeSingle();
+            await supabase
+              .from('users')
+              .update({ total_points: Number(rec?.total_points || 0) + 15 })
+              .eq('guild_id', match.guildId)
+              .eq('discord_id', id);
+          } catch (_) {}
+        }
+      }
+      match.eventLogs.push(`💎 | **${relicNames.join(', ')}** extracted sacred relic shards (+15 bonus QP)!`);
+    } else {
+      match.eventLogs.push(`💨 | The ancient relic pod sealed shut before anyone could harvest its shards!`);
+    }
+  } else if (chosenType === 'cover') {
+    // Up to ~70% sector affected; players who reacted in 5s are safe
+    const unlucky = match.alivePlayers.filter((id) => !reacted.has(id));
+    const targetGroup = unlucky.sort(() => 0.5 - Math.random()).slice(0, maxSlots);
+    let eliminatedCount = 0;
+
+    for (const victimId of targetGroup) {
+      if (Math.random() < 0.35 && (match.alivePlayers.length - eliminatedCount) > 2) {
         const victim = match.participants.get(victimId);
         match.alivePlayers = match.alivePlayers.filter((id) => id !== victimId);
         match.eliminatedPlayers.push(victimId);
+        eliminatedCount++;
+        if (!match.firstBlood) match.firstBlood = { killer: 'Carpet Bombing', victim: victim?.displayName || 'Unknown' };
         match.eventLogs.push(`💥 | **${victim?.displayName}** was caught outside bunker cover during the carpet bombing!`);
       }
     }
-    match.qteActive = null;
+    if (eliminatedCount === 0 && targetGroup.length > 0) {
+      match.eventLogs.push(`💣 | Bombs rained down, but exposed fighters narrowly dove clear of lethal blast waves!`);
+    } else if (targetGroup.length === 0) {
+      match.eventLogs.push(`🛡️ | All fighters took cover safely before the air strike struck!`);
+    }
+  } else if (chosenType === 'ion') {
+    const unshielded = match.alivePlayers.filter((id) => !reacted.has(id));
+    const targetGroup = unshielded.slice(0, maxSlots);
+    const scrambledNames = [];
+    for (const id of targetGroup) {
+      const p = match.participants.get(id);
+      if (p) {
+        p.hasSupplyBuff = false;
+        scrambledNames.push(p.displayName);
+      }
+    }
+    if (scrambledNames.length > 0) {
+      match.eventLogs.push(`⚡ | The orbital EMP wave swept the zone! Scrambled electronics and removed weapon buffs from **${scrambledNames.join(', ')}**!`);
+    } else {
+      match.eventLogs.push(`🛡️ | All fighters deployed EMP shields in time to neutralize the ion blast!`);
+    }
+  } else if (chosenType === 'gas') {
+    const unmasked = match.alivePlayers.filter((id) => !reacted.has(id));
+    const targetGroup = unmasked.slice(0, maxSlots);
+    let eliminatedCount = 0;
+    for (const victimId of targetGroup) {
+      if (Math.random() < 0.30 && (match.alivePlayers.length - eliminatedCount) > 2) {
+        const victim = match.participants.get(victimId);
+        match.alivePlayers = match.alivePlayers.filter((id) => id !== victimId);
+        match.eliminatedPlayers.push(victimId);
+        eliminatedCount++;
+        if (!match.firstBlood) match.firstBlood = { killer: 'Toxic Nanite Gas', victim: victim?.displayName || 'Unknown' };
+        match.eventLogs.push(`🧪 | **${victim?.displayName}** inhaled concentrated nano-toxins and collapsed!`);
+      }
+    }
+    if (eliminatedCount === 0 && targetGroup.length > 0) {
+      match.eventLogs.push(`💨 | Toxic gas dissipated quickly before causing fatal harm to exposed fighters.`);
+    } else if (targetGroup.length === 0) {
+      match.eventLogs.push(`🤿 | All fighters equipped respirators in time, walking through the green fog unaffected!`);
+    }
   }
+
+  match.qteActive = null;
 }
 
 /**
@@ -457,27 +618,51 @@ async function triggerLiveQTE(match, channel) {
 export function resolveQTEAction(matchId, discordId, actionType) {
   const match = matchIndex.get(matchId);
   if (!match || !match.qteActive || Date.now() > match.qteActive.expiresAt) {
-    return { success: false, message: '⏳ The quick-time event has already concluded!' };
+    return { success: false, message: '⏳ The 5-second event window has already concluded!' };
   }
 
   if (!match.alivePlayers.includes(discordId)) {
     return { success: false, message: '⚠️ Only active living fighters can interact with match events!' };
   }
 
-  if (actionType === 'loot') {
-    if (match.qteActive.resolvedBy) {
-      return { success: false, message: '💨 Another fighter already grabbed the supply crate!' };
+  const active = match.qteActive;
+  if (active.reactedPlayers.has(discordId)) {
+    return { success: false, message: '⚠️ You have already taken action for this event!' };
+  }
+
+  if ((actionType === 'loot' || actionType === 'relic') && active.reactedPlayers.size >= active.maxSlots) {
+    return { success: false, message: '💨 All available slots for this drop have already been claimed!' };
+  }
+
+  active.reactedPlayers.add(discordId);
+
+  // Dynamically update the button label on the QTE message so everyone sees the live count
+  if (active.message && typeof active.message.edit === 'function' && active.row) {
+    if (actionType === 'loot') {
+      active.row.components[0].setLabel(`Claim Loot (${active.reactedPlayers.size}/${active.maxSlots})`);
+    } else if (actionType === 'relic') {
+      active.row.components[0].setLabel(`Extract Relic (${active.reactedPlayers.size}/${active.maxSlots})`);
     }
-    match.qteActive.resolvedBy = discordId;
-    return { success: true, message: '🎉 **Loot Claimed!** You secured the airdrop prototype weapon (+25% Combat Power)!' };
+    active.message.edit({ components: [active.row] }).catch(() => null);
   }
 
+  if (actionType === 'loot') {
+    return { success: true, message: `🎉 **Crate Secured!** (${active.reactedPlayers.size}/${active.maxSlots}) You obtained an airdrop prototype weapon (+25% Combat Power)!` };
+  }
+  if (actionType === 'relic') {
+    return { success: true, message: `✨ **Relic Harvested!** (${active.reactedPlayers.size}/${active.maxSlots}) You extracted celestial shards (+15 bonus QP)!` };
+  }
   if (actionType === 'cover') {
-    match.qteActive.coveredPlayers.add(discordId);
-    return { success: true, message: '🛡️ **Bunker Reached!** You safely secured blast shelter.' };
+    return { success: true, message: '🛡️ **Bunker Reached!** You safely took shelter from the air strike.' };
+  }
+  if (actionType === 'ion') {
+    return { success: true, message: '⚡ **EMP Shield Deployed!** Your tech and radar are protected.' };
+  }
+  if (actionType === 'gas') {
+    return { success: true, message: '🤿 **Respirator Equipped!** You are immune to the toxic nano-gas cloud.' };
   }
 
-  return { success: false, message: 'Invalid action.' };
+  return { success: false, message: 'Action recognized.' };
 }
 
 /**
@@ -521,6 +706,9 @@ function resolveCombatDuel(match) {
   match.alivePlayers = match.alivePlayers.filter((id) => id !== defenderId);
   match.eliminatedPlayers.push(defenderId);
   match.kills.set(attackerId, (match.kills.get(attackerId) || 0) + 1);
+  if (!match.firstBlood) {
+    match.firstBlood = { killer: attacker.displayName, victim: defender.displayName };
+  }
 
   // Thief perk: Steals 15% points on death
   let thiefNote = '';
@@ -575,6 +763,9 @@ function resolveHazardEvent(match) {
 
   match.alivePlayers = match.alivePlayers.filter((id) => id !== victimId);
   match.eliminatedPlayers.push(victimId);
+  if (!match.firstBlood) {
+    match.firstBlood = { killer: 'Environmental Hazard', victim: victim.displayName };
+  }
 
   const template = pickRandom(HAZARD_DEATH_SCENARIOS);
   return {
@@ -639,8 +830,8 @@ export async function startBattleSimulation(match, client) {
       `${participantMentions}\n\n` +
       `**Era:** 🗡️ ${match.mode === 'interactive' ? 'Interactive' : 'Classic'}\n` +
       (match.mutator ? `**Mutator:** 🌪️ ${match.mutator}\n` : '') +
-      `**Prize:** ${match.prizePool} 🪙\n` +
-      `**Gold Per Kill:** ${match.goldPerKill} 🪙`
+      `**Prize:** ${match.prizePool} QP & +${match.prizeXp} XP\n` +
+      `**QP Per Kill:** ${match.goldPerKill} QP`
     )
     .setThumbnail(BATTLE_CREST_ICON);
 
@@ -781,6 +972,9 @@ async function concludeMatch(match, channel, client) {
   }
 
   // Award Winner in Supabase
+  let newPoints = 0;
+  let newLevel = 1;
+
   if (winner) {
     const { data: rec } = await supabase
       .from('users')
@@ -791,9 +985,9 @@ async function concludeMatch(match, channel, client) {
 
     const curPoints = Number(rec?.total_points || 0);
     const curXp = Number(rec?.xp || 0);
-    const newPoints = curPoints + winnerQP;
+    newPoints = curPoints + winnerQP;
     const newXp = curXp + winnerXP;
-    const newLevel = getLevelFromXp(newXp);
+    newLevel = getLevelFromXp(newXp);
 
     await supabase.from('users').upsert({
       guild_id: match.guildId,
@@ -847,7 +1041,7 @@ async function concludeMatch(match, channel, client) {
     }, { onConflict: 'guild_id,discord_id' });
   }
 
-  // Award Gold / QP Per Kill to all combatants
+  // Award QP Per Kill to all combatants
   for (const [killerId, killsCount] of match.kills.entries()) {
     if (killsCount > 0 && killerId !== winnerId) {
       const killBounty = killsCount * match.goldPerKill;
@@ -869,53 +1063,89 @@ async function concludeMatch(match, channel, client) {
   }
 
   // Settle spectator bets if any
+  let bettingSummary = 'No spectator bets were placed on this match.';
   try {
-    await settleMatchBets({
+    const betResult = await settleMatchBets({
       matchId: match.matchId,
       guildId: match.guildId,
       winnerId,
       winnerName: winner?.displayName || 'Unknown',
     });
+    if (betResult?.hasBets) {
+      if (betResult.payouts && betResult.payouts.length > 0) {
+        bettingSummary = betResult.payouts
+          .map((p) => `• **${p.bettorName}**: +${p.payout.toLocaleString()} QP (Profit: +${p.profit.toLocaleString()} QP)`)
+          .join('\n');
+      } else {
+        bettingSummary = betResult.message || 'No spectators correctly predicted the winner.';
+      }
+    }
   } catch (_) {}
 
-  // Build Winner Card (Matching Screenshot 4)
-  const winnerEmbed = new EmbedBuilder()
-    .setColor(0xfee75c) // Rumble Royale Gold/Yellow
-    .setTitle('__👑 WINNER!__')
-    .setDescription(
-      `**${winner?.displayName || 'Unknown'}**\n` +
-      `**Reward:** ${winnerQP} 🪙 & +${winnerXP} XP\n\n` +
-      `Total Players: ${match.participants.size}`
-    );
+  // Build Clean, Professional Result Card (Matching Screenshot 2)
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const winnerName = winner?.displayName || 'Unknown';
 
-  // Build Runners-up list with rewarded prizes
-  const runnersUpText = eliminatedList.slice(0, 5)
-    .map((id, idx) => {
+  const resultEmbed = new EmbedBuilder()
+    .setColor(0xffb703) // Champion Gold
+    .setTitle(`🏆 Chaos Clash Victory! ${winnerName} is Champion!`)
+    .setDescription(
+      `👑 **MATCH CHAMPION:**\n` +
+      `**${winnerName}** survived the massacre and claims the arena crown!\n\n` +
+      `🏛️ **Grand Prize Awarded:** +${winnerQP.toLocaleString()} QP & +${winnerXP} XP\n` +
+      `💰 **Updated Balance:** ${newPoints.toLocaleString()} QP (Level ${newLevel})`
+    )
+    .setThumbnail(winner?.avatarURL || BATTLE_CREST_ICON);
+
+  // Field 1: Runners-up
+  if (eliminatedList.length > 0) {
+    const runnersUpLines = eliminatedList.slice(0, 4).map((id, idx) => {
       const p = match.participants.get(id);
       const name = p?.displayName || 'Unknown';
-      if (idx === 0 && runner2QP > 0) return `${idx + 2}. ${name} (+${runner2QP} 🪙, +${runner2XP} XP)`;
-      if (idx === 1 && runner3QP > 0) return `${idx + 2}. ${name} (+${runner3QP} 🪙, +${runner3XP} XP)`;
-      return `${idx + 2}. ${name}`;
-    })
-    .join('\n') || 'None';
+      if (idx === 0 && runner2QP > 0) return `${idx + 2}. **${name}** (+${runner2QP} QP, +${runner2XP} XP)`;
+      if (idx === 1 && runner3QP > 0) return `${idx + 2}. **${name}** (+${runner3QP} QP, +${runner3XP} XP)`;
+      return `${idx + 2}. **${name}**`;
+    });
+    resultEmbed.addFields({
+      name: '🥈 RUNNERS-UP:',
+      value: runnersUpLines.join('\n') || 'None',
+      inline: false,
+    });
+  }
 
-  const killsText = `${maxKills} ${topKiller?.displayName || 'None'}`;
-  const revivesText = maxRevives > 0 ? `${maxRevives} ${topReviver?.displayName}` : '1 None';
+  // Field 2: Match Analytics & Highlights
+  const firstBloodStr = match.firstBlood
+    ? `${match.firstBlood.killer === 'Environmental Hazard' ? 'Nature / Hazard' : `**${match.firstBlood.killer}**`} (Eliminated ${match.firstBlood.victim})`
+    : 'None';
+  const analyticsLines = [
+    `• **First Blood:** ${firstBloodStr}`,
+    `• **Match MVP:** **${topKiller?.displayName || 'None'}** with **${maxKills}** eliminations`,
+    `• **Most Revives:** **${topReviver?.displayName || 'None'}** (${maxRevives} revivals)`,
+    `• **Total Participants:** **${match.participants.size}** Combatants`,
+    `• **Bounties:** +${match.goldPerKill} QP per elimination`,
+  ];
+  resultEmbed.addFields({
+    name: '🎖️ MATCH ANALYTICS & HIGHLIGHTS:',
+    value: analyticsLines.join('\n'),
+    inline: false,
+  });
 
-  // Build Stats Embed (Matching Screenshot 4)
-  const statsEmbed = new EmbedBuilder()
-    .setColor(0xfee75c)
-    .addFields(
-      { name: '🔮 Runners-up', value: runnersUpText, inline: true },
-      { name: '⚔️ Most Kills', value: killsText, inline: true },
-      { name: '✨ Most Revives', value: revivesText, inline: true }
-    )
-    .setFooter({ text: `🗡️ Era: ${match.mode === 'interactive' ? 'Interactive' : 'Classic'} • Chaos Clash` });
+  // Field 3: Spectator Betting Payouts
+  resultEmbed.addFields({
+    name: '🏛️ SPECTATOR BETTING PAYOUTS:',
+    value: bettingSummary,
+    inline: false,
+  });
+
+  resultEmbed.setFooter({
+    text: `Match ID: ${match.matchId} • Questify Battle Royale Engine • Today at ${timeStr}`,
+  });
 
   if (channel) {
     await channel.send({
       content: `<@${winnerId}>`,
-      embeds: [winnerEmbed, statsEmbed],
+      embeds: [resultEmbed],
     }).catch(() => null);
   }
 

@@ -1634,10 +1634,15 @@ export default {
         const payload = buildLobbyPayload(result.match);
         await interaction.message.edit(payload).catch(() => null);
 
+        const remainingSec = Math.max(
+          1,
+          Math.round((result.match.createdAt + result.match.signupDurationSec * 1000 - Date.now()) / 1000)
+        );
+
         const signupMsg =
           result.match.mode === 'interactive'
-            ? `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered).\n🛡️ Click Choose Archetype on the lobby message if you want to switch from default Tactician to Berserker, Medic, or Thief!`
-            : `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered).`;
+            ? `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered). 🛡️ Click Choose Archetype on the lobby message if you want to switch from default Tactician to Berserker, Medic, or Thief!\nStarting in ${remainingSec} seconds.`
+            : `⚔️ Welcome to the Arena! You have entered Chaos Clash (${result.totalJoined} fighters currently registered).\nStarting in ${remainingSec} seconds.`;
 
         return interaction.editReply({
           content: signupMsg,
@@ -1685,7 +1690,7 @@ export default {
         return interaction.showModal(modal);
       }
 
-      // --- R. CHAOS CLASH: LIVE QTE ACTIONS (SUPPLY LOOT & COVER) ---
+      // --- R. CHAOS CLASH: LIVE QTE ACTIONS (SUPPLY, COVER, ION, GAS, RELIC) ---
       if (customId.startsWith('battle_qte_loot_')) {
         const matchId = customId.replace('battle_qte_loot_', '');
         await interaction.deferReply({ ephemeral: true });
@@ -1697,6 +1702,27 @@ export default {
         const matchId = customId.replace('battle_qte_cover_', '');
         await interaction.deferReply({ ephemeral: true });
         const result = resolveQTEAction(matchId, discordId, 'cover');
+        return interaction.editReply({ content: result.message });
+      }
+
+      if (customId.startsWith('battle_qte_relic_')) {
+        const matchId = customId.replace('battle_qte_relic_', '');
+        await interaction.deferReply({ ephemeral: true });
+        const result = resolveQTEAction(matchId, discordId, 'relic');
+        return interaction.editReply({ content: result.message });
+      }
+
+      if (customId.startsWith('battle_qte_ion_')) {
+        const matchId = customId.replace('battle_qte_ion_', '');
+        await interaction.deferReply({ ephemeral: true });
+        const result = resolveQTEAction(matchId, discordId, 'ion');
+        return interaction.editReply({ content: result.message });
+      }
+
+      if (customId.startsWith('battle_qte_gas_')) {
+        const matchId = customId.replace('battle_qte_gas_', '');
+        await interaction.deferReply({ ephemeral: true });
+        const result = resolveQTEAction(matchId, discordId, 'gas');
         return interaction.editReply({ content: result.message });
       }
 
@@ -2939,6 +2965,7 @@ export default {
 
         const lobbyMsg = await interaction.channel.send(lobbyPayload);
         match.messageId = lobbyMsg.id;
+        await lobbyMsg.react('⚔️').catch(() => null);
 
         // Schedule countdown reminders (60s, 30s, 15s)
         scheduleCountdowns(match, interaction.client);
