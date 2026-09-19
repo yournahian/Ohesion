@@ -143,7 +143,12 @@ export default {
         .setCustomId('admin_create_battle')
         .setLabel('Chaos Clash')
         .setEmoji('⚔️')
-        .setStyle(ButtonStyle.Danger)
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId('admin_view_purchases')
+        .setLabel('Shop Purchases')
+        .setEmoji('🧾')
+        .setStyle(ButtonStyle.Primary)
     );
 
     return interaction.editReply({

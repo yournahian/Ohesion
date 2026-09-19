@@ -959,6 +959,56 @@ export default {
         return interaction.showModal(modal);
       }
 
+      // --- ADMIN: VIEW RECENT MARKETPLACE PURCHASES ---
+      if (customId === 'admin_view_purchases') {
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to view marketplace purchase logs.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: purchases, error: fetchErr } = await supabase
+          .from('marketplace_purchases')
+          .select('*')
+          .eq('guild_id', guildId)
+          .order('created_at', { ascending: false })
+          .limit(15);
+
+        if (fetchErr) {
+          console.error('[FETCH PURCHASES ERROR]:', fetchErr);
+          return interaction.editReply({ content: '❌ Failed to fetch purchase logs from database.' });
+        }
+
+        if (!purchases || purchases.length === 0) {
+          return interaction.editReply({
+            content: '🛒 **No marketplace purchases recorded yet for this server.**',
+          });
+        }
+
+        const purchaseRows = purchases.map((p, i) => {
+          const recId = (p.purchase_id || p.id || 'N/A').toString().slice(-8).toUpperCase();
+          const timeSec = p.created_at ? Math.floor(new Date(p.created_at).getTime() / 1000) : null;
+          const timeStr = timeSec ? `<t:${timeSec}:R>` : 'Recently';
+          return `**${i + 1}. ${p.item_title || 'Item'}** • **${p.cost_paid || 0} QP**\n` +
+            `↳ Buyer: <@${p.discord_id}> • Receipt: \`#REC-${recId}\` • ${timeStr}`;
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor(0x118ab2)
+          .setTitle('🧾 Marketplace Purchase Ledger (Latest 15)')
+          .setDescription(
+            `Use this ledger to verify any member purchase in real time:\n\n` +
+            purchaseRows.join('\n\n')
+          )
+          .setFooter({ text: 'Questify Economy & Marketplace Audit' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
       if (customId === 'admin_vc_snapshot') {
         const modal = new ModalBuilder()
           .setCustomId('modal_vc_snapshot')
@@ -1327,6 +1377,13 @@ export default {
           .addOptions(options);
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
+        const btnRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('hub_my_purchases')
+            .setLabel('My Purchases & Receipts')
+            .setEmoji('🧾')
+            .setStyle(ButtonStyle.Secondary)
+        );
 
         const itemListText = items
           .map(
@@ -1339,10 +1396,51 @@ export default {
         const embed = new EmbedBuilder()
           .setColor(0xffb703)
           .setTitle(`🛒 ${interaction.guild?.name || 'Server'} • Community Marketplace`)
-          .setDescription(`${itemListText}\n\n*Select an item below to purchase!*`)
+          .setDescription(`${itemListText}\n\n*Select an item below to purchase, or view your past receipts!*`)
           .setFooter({ text: 'Quest Points are automatically deducted upon purchase' });
 
-        return interaction.editReply({ embeds: [embed], components: [row] });
+        return interaction.editReply({ embeds: [embed], components: [row, btnRow] });
+      }
+
+      // --- MEMBER HUB: MY PURCHASES & RECEIPTS ---
+      if (customId === 'hub_my_purchases') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: myPurchases } = await supabase
+          .from('marketplace_purchases')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!myPurchases || myPurchases.length === 0) {
+          return interaction.editReply({
+            content: '🛍️ **You have not purchased any items from the Community Marketplace yet.**',
+          });
+        }
+
+        const rows = myPurchases.map((p, i) => {
+          const recId = (p.purchase_id || p.id || 'N/A').toString().slice(-8).toUpperCase();
+          const timeSec = p.created_at ? Math.floor(new Date(p.created_at).getTime() / 1000) : null;
+          const timeStr = timeSec ? `<t:${timeSec}:f> (<t:${timeSec}:R>)` : 'Recently';
+          return `**${i + 1}. ${p.item_title}**\n` +
+            `• Cost: **${p.cost_paid} QP**\n` +
+            `• Receipt ID: \`#REC-${recId}\`\n` +
+            `• Date: ${timeStr}`;
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('🧾 My Marketplace Purchases & Receipts')
+          .setDescription(
+            `Here are your recent verified purchases. Provide your **Receipt ID** to server admins if manual verification is required:\n\n` +
+            rows.join('\n\n')
+          )
+          .setFooter({ text: `Member ID: ${discordId}` })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed] });
       }
 
       // --- MEMBER HUB: ACTIVE AUCTIONS ---
@@ -2556,11 +2654,12 @@ export default {
         const title = interaction.fields.getTextInputValue('input_shop_title');
         const costStr = interaction.fields.getTextInputValue('input_shop_cost');
         const desc = interaction.fields.getTextInputValue('input_shop_desc') || '';
-        const roleId = interaction.fields.getTextInputValue('input_shop_role_id') || null;
+        const rawRoleId = interaction.fields.getTextInputValue('input_shop_role_id') || '';
         const stockStr = interaction.fields.getTextInputValue('input_shop_stock');
 
         const cost = parseInt(costStr, 10) || 100;
         const stock = parseInt(stockStr, 10) || -1;
+        const cleanRoleId = rawRoleId.replace(/[<@&>]/g, '').trim() || null;
 
         const { error } = await supabase.from('marketplace_items').insert({
           guild_id: guildId,
@@ -2568,7 +2667,7 @@ export default {
           description: desc,
           cost,
           stock,
-          role_id: roleId && roleId.trim().length > 0 ? roleId.trim() : null,
+          role_id: cleanRoleId,
         });
 
         if (error) {
@@ -2576,9 +2675,29 @@ export default {
           return interaction.editReply({ content: '❌ Failed to add marketplace item to database.' });
         }
 
-        const roleMention = roleId ? ` (Auto-assigns <@&${roleId.trim()}>)` : '';
+        let roleMention = '';
+        let roleWarning = '';
+        if (cleanRoleId && interaction.guild) {
+          roleMention = ` (Auto-assigns <@&${cleanRoleId}>)`;
+          const botMember = await interaction.guild.members.fetchMe().catch(() => null);
+          const targetRole =
+            interaction.guild.roles.cache.get(cleanRoleId) ||
+            (await interaction.guild.roles.fetch(cleanRoleId).catch(() => null));
+
+          if (!targetRole) {
+            roleWarning = `\n⚠️ **Warning:** Role ID \`${cleanRoleId}\` was not found in this server.`;
+          } else if (
+            !botMember?.permissions.has(PermissionFlagsBits.ManageRoles) &&
+            !botMember?.permissions.has(PermissionFlagsBits.Administrator)
+          ) {
+            roleWarning = `\n⚠️ **Notice:** Questify does not have **Manage Roles** permission. Please enable it in Server Settings > Roles so the bot can auto-assign this role upon purchase.`;
+          } else if (botMember.roles.highest.position <= targetRole.position) {
+            roleWarning = `\n⚠️ **Notice (Role Hierarchy):** Questify's role is positioned **below** <@&${cleanRoleId}> in Server Settings > Roles!\n👉 *Please drag the Questify role ABOVE <@&${cleanRoleId}> to enable automatic role assignment.*`;
+          }
+        }
+
         return interaction.editReply({
-          content: `✅ Added **${title}** to the Community Marketplace for **${cost} QP**!${roleMention}`,
+          content: `✅ Added **${title}** to the Community Marketplace for **${cost} QP**!${roleMention}${roleWarning}`,
         });
       }
 
@@ -3728,37 +3847,112 @@ export default {
         }
 
         // Record purchase
-        await supabase.from('marketplace_purchases').insert({
-          guild_id: guildId,
-          discord_id: discordId,
-          item_id: itemId,
-          cost_paid: cost,
-          item_title: item.title,
-        });
+        const { data: purchaseRecord } = await supabase
+          .from('marketplace_purchases')
+          .insert({
+            guild_id: guildId,
+            discord_id: discordId,
+            item_id: itemId,
+            cost_paid: cost,
+            item_title: item.title,
+          })
+          .select()
+          .maybeSingle();
+
+        const rawId = purchaseRecord?.purchase_id || purchaseRecord?.id || Date.now().toString(36);
+        const receiptId = rawId.toString().slice(-8).toUpperCase();
 
         // If a Discord Role ID is attached, auto-assign the role!
         let roleSuccessNote = '';
-        if (item.role_id) {
+        let roleGranted = false;
+        const cleanRoleId = item.role_id ? item.role_id.replace(/[<@&>]/g, '').trim() : null;
+
+        if (cleanRoleId) {
           try {
-            const member = await interaction.guild.members.fetch(discordId);
-            if (member) {
-              await member.roles.add(item.role_id);
-              roleSuccessNote = `\n🎖️ **Role Granted:** <@&${item.role_id}> has been assigned to your profile!`;
+            const guild = interaction.guild;
+            const botMember = await guild.members.fetchMe().catch(() => null);
+            const targetRole =
+              guild.roles.cache.get(cleanRoleId) ||
+              (await guild.roles.fetch(cleanRoleId).catch(() => null));
+
+            if (!targetRole) {
+              roleSuccessNote = `\n⚠️ **Role Not Found:** Role ID \`${cleanRoleId}\` could not be found. Please contact an admin.`;
+            } else if (
+              !botMember?.permissions.has(PermissionFlagsBits.ManageRoles) &&
+              !botMember?.permissions.has(PermissionFlagsBits.Administrator)
+            ) {
+              roleSuccessNote =
+                `\n⚠️ **Role Not Auto-Assigned (Missing Permission):** Questify is missing the **Manage Roles** permission!\n` +
+                `👉 *Admin Action:* Grant Questify the "Manage Roles" permission in Server Settings > Roles, then grant <@&${cleanRoleId}> to <@${discordId}>.`;
+            } else if (botMember.roles.highest.position <= targetRole.position) {
+              roleSuccessNote =
+                `\n⚠️ **Role Not Auto-Assigned (Role Hierarchy):** Questify's role is positioned below <@&${cleanRoleId}>!\n` +
+                `👉 *Admin Action:* In **Server Settings > Roles**, drag the **Questify** role **ABOVE** <@&${cleanRoleId}>, then assign the role to <@${discordId}>.`;
+            } else {
+              const member = await guild.members.fetch(discordId).catch(() => null);
+              if (member) {
+                await member.roles.add(cleanRoleId);
+                roleGranted = true;
+                roleSuccessNote = `\n🎖️ **Role Auto-Assigned:** <@&${cleanRoleId}> has been added to your profile!`;
+              }
             }
           } catch (roleErr) {
             console.warn('[ROLE ASSIGN WARN]:', roleErr.message);
-            roleSuccessNote = `\n⚠️ (Note: Please ask an admin to manually verify role <@&${item.role_id}>).`;
+            roleSuccessNote =
+              `\n⚠️ **Role Not Auto-Assigned:** ${roleErr.message}.\n` +
+              `👉 *Admin Action:* Make sure Questify's role is above <@&${cleanRoleId}> in Server Settings > Roles with "Manage Roles" enabled.`;
           }
         }
 
+        // Post purchase log to audit channel if available
+        try {
+          const logChannel = interaction.guild.channels.cache.find(
+            c =>
+              (c.name === 'questify-logs' ||
+                c.name === 'admin-logs' ||
+                c.name === 'mod-logs' ||
+                c.name === 'logs') &&
+              c.isTextBased()
+          );
+
+          if (logChannel) {
+            const auditEmbed = new EmbedBuilder()
+              .setColor(roleGranted ? 0x06d6a0 : 0xffa500)
+              .setTitle('🛒 Verified Marketplace Purchase')
+              .setDescription(
+                `👤 **Buyer:** <@${discordId}> (\`${interaction.user.tag}\`)\n` +
+                `🛍️ **Item:** **${item.title}**\n` +
+                `🪙 **Paid:** **${cost} QP**\n` +
+                `🧾 **Receipt ID:** \`#REC-${receiptId}\`\n` +
+                `🎖️ **Role Attached:** ${cleanRoleId ? `<@&${cleanRoleId}>` : 'None'}\n` +
+                `⚡ **Role Status:** ${
+                  cleanRoleId
+                    ? roleGranted
+                      ? '✅ Auto-assigned successfully'
+                      : '⚠️ Manual action required (Drag Questify role above this role)'
+                    : 'N/A'
+                }`
+              )
+              .setTimestamp()
+              .setFooter({ text: `Buyer ID: ${discordId}` });
+
+            await logChannel.send({ embeds: [auditEmbed] }).catch(() => null);
+          }
+        } catch (logErr) {
+          console.warn('[PURCHASE AUDIT LOG ERROR]:', logErr.message);
+        }
+
         const successEmbed = new EmbedBuilder()
-          .setColor(0x06d6a0)
+          .setColor(roleGranted || !cleanRoleId ? 0x06d6a0 : 0xffd166)
           .setTitle('🛍️ Purchase Successful!')
           .setDescription(
-            `You purchased **${item.title}** for **${cost} QP**!\n` +
-            `💰 **Remaining Balance:** ${(userPoints - cost).toLocaleString()} QP${roleSuccessNote}`
+            `You purchased **${item.title}** for **${cost} QP**!\n\n` +
+            `🧾 **Receipt ID:** \`#REC-${receiptId}\`\n` +
+            `💰 **Remaining Balance:** ${(userPoints - cost).toLocaleString()} QP\n` +
+            `📅 **Date:** <t:${Math.floor(Date.now() / 1000)}:f>` +
+            roleSuccessNote
           )
-          .setFooter({ text: 'Questify Community Marketplace' });
+          .setFooter({ text: 'Questify Community Marketplace • Save your Receipt ID' });
 
         return interaction.editReply({ embeds: [successEmbed] });
       }
