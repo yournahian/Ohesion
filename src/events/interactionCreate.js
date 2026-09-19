@@ -346,16 +346,16 @@ export default {
 
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_options')
-          .setLabel('Thumbnail / Image & Action Buttons')
-          .setValue('[✓] Image  [✓] Buttons')
-          .setPlaceholder('Tick [✓] or untick [ ] what you want. e.g. [✓] Image  [ ] Buttons')
+          .setLabel('Show Image, Action Buttons (e.g. yes, yes)')
+          .setValue('yes, yes')
+          .setPlaceholder('e.g. yes, yes or yes, no')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
         const textInput = new TextInputBuilder()
           .setCustomId('input_custom_text')
-          .setLabel('Custom Snippet & Requirements')
-          .setPlaceholder('Users must follow @account to earn points.\nOnly users with the role @Verified can participate.\n@Socials')
+          .setLabel('Custom Snippet & Requirements (Optional)')
+          .setPlaceholder('e.g. Must follow @account.\nOnly @Verified role can participate.\n@Socials')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(false);
 
@@ -366,7 +366,14 @@ export default {
           new ActionRowBuilder().addComponents(textInput)
         );
 
-        return interaction.showModal(modal);
+        try {
+          return await interaction.showModal(modal);
+        } catch (modalErr) {
+          console.error('[SHOW POST TWEET MODAL ERROR]:', modalErr);
+          if (!interaction.replied && !interaction.deferred) {
+            return interaction.reply({ content: `❌ Could not open form: ${modalErr.message}`, ephemeral: true });
+          }
+        }
       }
 
       if (customId === 'admin_create_raffle') {
@@ -2070,6 +2077,22 @@ export default {
 
         if (optionsStr) {
           const lower = optionsStr.toLowerCase();
+
+          const optParts = lower.split(/[,|\s]+/).map((s) => s.trim()).filter(Boolean);
+          if (optParts.length >= 1 && ['no', 'false', 'off', '0'].includes(optParts[0])) {
+            showImage = false;
+          } else if (optParts.length >= 1 && ['yes', 'true', 'on', '1'].includes(optParts[0])) {
+            showImage = true;
+          }
+
+          if (optParts.length >= 2 && ['no', 'false', 'off', '0', 'none'].includes(optParts[1])) {
+            includeButtons = false;
+            includeLike = false;
+            includeRt = false;
+            includeComment = false;
+          } else if (optParts.length >= 2 && ['yes', 'true', 'on', '1'].includes(optParts[1])) {
+            includeButtons = true;
+          }
 
           // Image toggle: check untick [ ] or explicit "no" / "off" / "none"
           if (
