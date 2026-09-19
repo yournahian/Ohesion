@@ -371,35 +371,36 @@ export default {
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
-        const durationInput = new TextInputBuilder()
-          .setCustomId('input_poll_duration')
-          .setLabel('Duration (e.g. 30m, 2h, 24h, 3d)')
-          .setValue('24h')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
         const settingsInput = new TextInputBuilder()
           .setCustomId('input_poll_settings')
-          .setLabel('Live Results & Community Choices')
-          .setValue('[✓] Live Results  [✓] Allow Member Options')
-          .setPlaceholder('[✓] Live Results  [✓] Allow Member Options (tick/untick)')
+          .setLabel('Instant Live Results, Add Community Choice')
+          .setValue('yes, no')
+          .setPlaceholder('e.g. yes, no')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
         const rewardInput = new TextInputBuilder()
           .setCustomId('input_poll_reward')
-          .setLabel('Rewards & Ping Tag (Optional)')
+          .setLabel('Vote Rewards: [QP], [XP]')
           .setValue('10, 5')
-          .setPlaceholder('e.g. 10, 5 (QP, XP) | @Socials or @everyone')
+          .setPlaceholder('e.g. 10, 5')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
+
+        const durationInput = new TextInputBuilder()
+          .setCustomId('input_poll_duration')
+          .setLabel('Duration & Ping Tag (Optional)')
+          .setValue('24h')
+          .setPlaceholder('e.g. 24h, @everyone or 5m, @Members')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(questionInput),
           new ActionRowBuilder().addComponents(optionsInput),
-          new ActionRowBuilder().addComponents(durationInput),
           new ActionRowBuilder().addComponents(settingsInput),
-          new ActionRowBuilder().addComponents(rewardInput)
+          new ActionRowBuilder().addComponents(rewardInput),
+          new ActionRowBuilder().addComponents(durationInput)
         );
 
         return interaction.showModal(modal);
@@ -2690,14 +2691,14 @@ export default {
 
         const question = interaction.fields.getTextInputValue('input_poll_question').trim();
         const rawOptions = interaction.fields.getTextInputValue('input_poll_options').trim();
-        const durationStr = interaction.fields.getTextInputValue('input_poll_duration').trim();
+        const durationAndTagStr = interaction.fields.getTextInputValue('input_poll_duration').trim();
         let settingsStr = '';
         try {
           settingsStr = interaction.fields.getTextInputValue('input_poll_settings') || '';
         } catch (_) {}
-        let rewardAndTagStr = '';
+        let rewardStr = '';
         try {
-          rewardAndTagStr = interaction.fields.getTextInputValue('input_poll_reward') || '';
+          rewardStr = interaction.fields.getTextInputValue('input_poll_reward') || '';
         } catch (_) {}
 
         // Parse options (one per line, semicolon, or comma)
@@ -2726,6 +2727,19 @@ export default {
           });
         }
 
+        // Parse duration & ping tag from durationAndTagStr (e.g. "24h, @everyone" or "5m")
+        let durationStr = durationAndTagStr;
+        let tagStr = '';
+        if (durationAndTagStr.includes(',') || durationAndTagStr.includes('|')) {
+          const parts = durationAndTagStr.split(/[,|]/);
+          durationStr = (parts[0] || '').trim();
+          tagStr = parts.slice(1).join(',').trim();
+        } else if (durationAndTagStr.includes(' ')) {
+          const parts = durationAndTagStr.trim().split(/\s+/);
+          durationStr = (parts[0] || '').trim();
+          tagStr = parts.slice(1).join(' ').trim();
+        }
+
         // Parse duration (supporting minutes, hours, days)
         let durationMs = 24 * 60 * 60 * 1000;
         const parsedMs = parseDuration(durationStr);
@@ -2737,54 +2751,57 @@ export default {
         }
         const expiresAt = new Date(Date.now() + durationMs).toISOString();
 
-        // Parse Settings (Live Results & Member Added Choices)
-        const lowerSettings = settingsStr.toLowerCase();
+        // Parse Settings: "Instant Live Results, Add Community Choice"
+        // Format: "yes, no" -> [0]=Live Results (yes/no), [1]=Allow Member Options (yes/no)
+        const lowerSettings = settingsStr.toLowerCase().trim();
         let resultsVisibility = 'live';
-        if (
-          lowerSettings.includes('[ ] live') ||
-          lowerSettings.includes('[-] live') ||
-          lowerSettings.includes('hide') ||
-          lowerSettings.includes('hidden') ||
-          lowerSettings.includes('after end') ||
-          lowerSettings.includes('after duration') ||
-          lowerSettings.includes('secret') ||
-          lowerSettings.includes('deny')
-        ) {
-          resultsVisibility = 'ended';
-        }
-
         let allowUserOptions = false;
-        if (
-          lowerSettings.includes('[✓] allow') ||
-          lowerSettings.includes('[x] allow') ||
-          lowerSettings.includes('allow member') ||
-          lowerSettings.includes('allow user') ||
-          lowerSettings.includes('user choices: yes') ||
-          lowerSettings.includes('allow choices: yes') ||
-          lowerSettings.includes('allow options: yes') ||
-          lowerSettings.includes('yes')
-        ) {
-          allowUserOptions = true;
+
+        const settingParts = lowerSettings.split(/[,|\s]+/).map((s) => s.trim()).filter(Boolean);
+        if (settingParts.length >= 1) {
+          const livePart = settingParts[0];
+          if (['no', 'false', '0', 'off', 'hide', 'hidden', 'ended'].includes(livePart)) {
+            resultsVisibility = 'ended';
+          } else {
+            resultsVisibility = 'live';
+          }
+        }
+        if (settingParts.length >= 2) {
+          const optPart = settingParts[1];
+          if (['yes', 'true', '1', 'on', 'allow'].includes(optPart)) {
+            allowUserOptions = true;
+          } else {
+            allowUserOptions = false;
+          }
+        } else {
+          // Backward-compatible fallback
+          if (
+            lowerSettings.includes('[ ] live') ||
+            lowerSettings.includes('hide') ||
+            lowerSettings.includes('hidden') ||
+            lowerSettings.includes('after end')
+          ) {
+            resultsVisibility = 'ended';
+          }
+          if (
+            lowerSettings.includes('allow') ||
+            lowerSettings.includes('[✓]') ||
+            lowerSettings.includes('[x]')
+          ) {
+            allowUserOptions = true;
+          }
         }
 
-        // Parse rewards & ping tag
+        // Parse rewards: [QP], [XP] e.g. "10, 5" or "10 [QP], 5 [XP]" or "10 (QP), 5 (XP)"
         let rewardPoints = 0;
         let rewardXp = 0;
-        let tagStr = '';
-
-        if (rewardAndTagStr) {
-          if (rewardAndTagStr.includes('|')) {
-            const [rwPart, tgPart] = rewardAndTagStr.split('|');
-            const parts = (rwPart || '').split(/[,|\s]+/).filter(Boolean);
-            if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
-            if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
-            tagStr = (tgPart || '').trim();
-          } else if (rewardAndTagStr.includes('@') || rewardAndTagStr.toLowerCase().includes('everyone') || rewardAndTagStr.toLowerCase().includes('here')) {
-            tagStr = rewardAndTagStr.trim();
-          } else {
-            const parts = rewardAndTagStr.split(/[,|\s]+/).filter(Boolean);
-            if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
-            if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
+        if (rewardStr) {
+          const rewardNumbers = rewardStr.match(/\d+/g);
+          if (rewardNumbers && rewardNumbers.length > 0) {
+            rewardPoints = parseInt(rewardNumbers[0], 10) || 0;
+            if (rewardNumbers.length > 1) {
+              rewardXp = parseInt(rewardNumbers[1], 10) || 0;
+            }
           }
         }
 
