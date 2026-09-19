@@ -31,10 +31,30 @@ export default {
       interaction.guild ||
       (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
 
+    const botId = interaction.client.user?.id || '1550544108349554799';
+
     if (!guild) {
-      const botId = interaction.client.user?.id || '1550544108349554799';
       return interaction.editReply({
         content: `⚠️ Questify is not added to this server as a bot. Please invite Questify to this server using this link:\nhttps://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
+      });
+    }
+
+    // Verify bot's own permissions in this server
+    const botMember = guild.members.me || (await guild.members.fetchMe().catch(() => null));
+    const hasManageChannels = botMember?.permissions?.has(PermissionFlagsBits.ManageChannels);
+    const hasAdmin = botMember?.permissions?.has(PermissionFlagsBits.Administrator);
+
+    if (!hasAdmin && !hasManageChannels) {
+      return interaction.editReply({
+        content:
+          `⚠️ **Questify lacks permission to create channels in this server!**\n\n` +
+          `**How to fix:**\n` +
+          `1. Go to **Server Settings** ⚙️ > **Roles**\n` +
+          `2. Click on the **Questify** role\n` +
+          `3. Go to the **Permissions** tab and turn ON **Manage Channels** (or **Administrator**)\n` +
+          `4. Click **Save Changes** and run \`/setup\` again!\n\n` +
+          `*Or re-authorize Questify with Administrator privileges:*\n` +
+          `https://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
       });
     }
 
