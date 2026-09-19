@@ -276,8 +276,8 @@ export default {
 
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_poll_options')
-          .setLabel('Options (2 to 5, one per line)')
-          .setPlaceholder('Base\nSolana\nEthereum\nPolygon')
+          .setLabel('Poll Choices (one per line, as many as you want)')
+          .setPlaceholder('Enter choices (one per line)\nOption 1\nOption 2\nOption 3\nOption 4\nOption 5\n...')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
@@ -2381,9 +2381,15 @@ export default {
           .map((o) => o.trim())
           .filter((o) => o.length > 0);
 
-        if (options.length < 2 || options.length > 5) {
+        if (options.length < 2) {
           return interaction.editReply({
-            content: '❌ **Invalid Options:** Please provide between 2 and 5 poll options (one per line).',
+            content: '❌ **Invalid Options:** Please provide at least 2 poll options (one per line).',
+          });
+        }
+
+        if (options.length > 25) {
+          return interaction.editReply({
+            content: '❌ **Too Many Options:** Discord supports a maximum of 25 interactive buttons per poll.',
           });
         }
 

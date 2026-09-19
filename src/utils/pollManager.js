@@ -40,7 +40,13 @@ export function buildPollPayload(poll) {
     }
   }
 
-  const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+  const emojis = [
+    '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣',
+    '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟',
+    '🇦', '🇧', '🇨', '🇩', '🇪',
+    '🇫', '🇬', '🇭', '🇮', '🇯',
+    '🇰', '🇱', '🇲', '🇳', '🇴'
+  ];
 
   // Build the options visual display with percentages and progress bars
   const optionsText = poll.options
@@ -66,20 +72,27 @@ export function buildPollPayload(poll) {
     .setFooter({ text: `Poll ID: ${poll.poll_id} • 1 Vote Per Member` })
     .setTimestamp();
 
-  // Create option buttons (up to 5)
-  const buttonsRow = new ActionRowBuilder();
-  poll.options.forEach((opt, idx) => {
-    buttonsRow.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`poll_vote_${poll.poll_id}_${idx}`)
-        .setLabel(opt.slice(0, 70))
-        .setEmoji(emojis[idx] || '🔹')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(isExpired)
-    );
-  });
+  // Dynamically chunk buttons into ActionRows of up to 5 buttons each (up to 25 total)
+  const components = [];
+  const maxButtons = Math.min(poll.options.length, 25);
 
-  const components = [buttonsRow];
+  for (let i = 0; i < maxButtons; i += 5) {
+    const row = new ActionRowBuilder();
+    const slice = poll.options.slice(i, i + 5);
+    slice.forEach((opt, relIdx) => {
+      const globalIdx = i + relIdx;
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`poll_vote_${poll.poll_id}_${globalIdx}`)
+          .setLabel(opt.slice(0, 70))
+          .setEmoji(emojis[globalIdx] || '🔹')
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(isExpired)
+      );
+    });
+    components.push(row);
+  }
+
   return { embeds: [embed], components };
 }
 
