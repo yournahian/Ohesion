@@ -7,7 +7,11 @@ import {
   VoiceConnectionStatus,
   EndBehaviorType,
   entersState,
+  createAudioPlayer,
+  createAudioResource,
+  StreamType,
 } from '@discordjs/voice';
+import { Readable } from 'node:stream';
 import {
   getActiveAiProvider,
   transcribeAudioFile,
@@ -25,6 +29,18 @@ const ffmpegPath = require('ffmpeg-static');
 // Configure ffmpeg static binary
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
+}
+
+/**
+ * Paced Opus silence stream (20ms interval) to keep the Discord UDP voice socket alive
+ * This ensures Discord routes all incoming speaker audio packets to the bot receiver.
+ */
+class SilenceStream extends Readable {
+  _read() {
+    setTimeout(() => {
+      this.push(Buffer.from([0xf8, 0xff, 0xfe]));
+    }, 20);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,7 +106,7 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf: false,
-    selfMute: true,
+    selfMute: false,
   });
 
   try {
@@ -100,6 +116,14 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     fs.rmSync(sessionDir, { recursive: true, force: true });
     throw new Error('Failed to connect to the voice channel within 15 seconds.');
   }
+
+  // Start continuous 20ms silence frame keep-alive player
+  const silencePlayer = createAudioPlayer();
+  const silenceResource = createAudioResource(new SilenceStream(), {
+    inputType: StreamType.Opus,
+  });
+  silencePlayer.play(silenceResource);
+  connection.subscribe(silencePlayer);
 
   const session = {
     sessionId,
@@ -112,6 +136,7 @@ export async function startRecording({ voiceChannel, client, mode = 'both', init
     initiatedById: initiatedBy.id,
     sessionDir,
     connection,
+    silencePlayer,
     receiver: connection.receiver,
     speakers: new Map(), // userId -> { username, displayName, pcmPath, wavPath, writtenBytes, fileStream }
     activeSubscriptions: new Set(),
@@ -342,6 +367,13 @@ export async function stopRecording(guildId) {
     }
   }
 
+  // Stop silence keep-alive player
+  if (session.silencePlayer) {
+    try {
+      session.silencePlayer.stop();
+    } catch {}
+  }
+
   // Destroy Discord voice connection
   try {
     session.connection.destroy();
@@ -512,6 +544,12 @@ export function cancelRecording(guildId) {
   for (const speaker of session.speakers.values()) {
     try {
       speaker.fileStream.end();
+    } catch {}
+  }
+
+  if (session.silencePlayer) {
+    try {
+      session.silencePlayer.stop();
     } catch {}
   }
 

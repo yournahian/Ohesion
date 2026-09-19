@@ -457,9 +457,16 @@ export default {
           });
         }
 
-        await interaction.deferReply();
+        if (interaction.isButton()) {
+          await interaction.deferUpdate();
+        } else {
+          await interaction.deferReply({ ephemeral: true });
+        }
+
         await interaction.editReply({
           content: '⏳ **Concluding session and processing multi-track audio...**\n*Mixing master track, aligning speaker stems, and generating AI meeting notes. This may take 10-30 seconds depending on duration.*',
+          embeds: [],
+          components: [],
         });
 
         try {
@@ -510,6 +517,7 @@ export default {
           return interaction.editReply({
             content: `✅ Recording session concluded! Here are your production deliverables:`,
             embeds: [embed],
+            components: [],
             files: deliverables.filesToAttach,
           });
         } catch (err) {
@@ -750,29 +758,6 @@ export default {
           );
 
           await interaction.editReply({ embeds: [embed], components: [row] });
-
-          // Send notification card into the text channel
-          const alertEmbed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle('🎙️ Community Call Recording In Progress')
-            .setDescription(
-              `A multi-track recording session has been started in **<#${channel.id}>** by <@${interaction.user.id}>.\n` +
-              `• **Mode:** ${modeDisplay}\n\n` +
-              `*Speakers will be captured on isolated audio stems with synchronized timelines.*`
-            )
-            .setFooter({ text: 'Questify Audio & AI Engine' });
-
-          const alertRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId('record_stop')
-              .setLabel('Stop Recording')
-              .setEmoji('⏹️')
-              .setStyle(ButtonStyle.Danger)
-          );
-
-          if (interaction.channel && interaction.channel.id !== channel.id) {
-            await interaction.channel.send({ embeds: [alertEmbed], components: [alertRow] }).catch(() => null);
-          }
         } catch (err) {
           console.error('[ADMIN REC START ERROR]:', err);
           return interaction.editReply({
