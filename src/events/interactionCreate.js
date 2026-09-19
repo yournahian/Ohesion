@@ -276,8 +276,8 @@ export default {
 
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_poll_options')
-          .setLabel('Poll Choices (one per line, as many as you want)')
-          .setPlaceholder('Enter choices (one per line)\nOption 1\nOption 2\nOption 3\nOption 4\nOption 5\n...')
+          .setLabel('Poll Choices (Add as many as you want!)')
+          .setPlaceholder('Enter choices (one per line, as many as you want)\n🟢 Bullish\n🔴 Bearish\n⚪ Neutral\n🚀 Moon\n...')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
@@ -2376,20 +2376,29 @@ export default {
           tagStr = interaction.fields.getTextInputValue('input_poll_tag') || '';
         } catch (_) {}
 
-        // Parse options (one per line or comma)
-        const options = (rawOptions.includes('\n') ? rawOptions.split('\n') : rawOptions.split(','))
+        // Parse options (one per line, semicolon, or comma)
+        let options = [];
+        if (rawOptions.includes('\n')) {
+          options = rawOptions.split('\n');
+        } else if (rawOptions.includes(';')) {
+          options = rawOptions.split(';');
+        } else {
+          options = rawOptions.split(',');
+        }
+
+        options = options
           .map((o) => o.trim())
           .filter((o) => o.length > 0);
 
         if (options.length < 2) {
           return interaction.editReply({
-            content: '❌ **Invalid Options:** Please provide at least 2 poll options (one per line).',
+            content: '❌ **Invalid Choices:** Please provide at least 2 poll choices (one per line).',
           });
         }
 
-        if (options.length > 25) {
+        if (options.length > 125) {
           return interaction.editReply({
-            content: '❌ **Too Many Options:** Discord supports a maximum of 25 interactive buttons per poll.',
+            content: '❌ **Choice Limit Exceeded:** Discord supports up to 125 choices per poll message.',
           });
         }
 
@@ -2483,6 +2492,48 @@ export default {
       const selectId = interaction.customId;
       const guildId = interaction.guildId;
       const discordId = interaction.user.id;
+
+      // --- SELECT: COMMUNITY POLL VOTE (FOR POLLS WITH > 25 CHOICES) ---
+      if (selectId.startsWith('poll_select_vote_')) {
+        const parts = selectId.split('_');
+        const pollId = parts[3];
+        const selectedIndex = parseInt(interaction.values[0], 10);
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await castPollVote({
+          pollId,
+          guildId,
+          discordId,
+          optionIndex: selectedIndex,
+          client: interaction.client,
+        });
+
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        // Update the live poll card with new vote count and percentage bars
+        const updatedPayload = buildPollPayload(result.poll);
+        await interaction.message.edit(updatedPayload).catch(() => null);
+
+        let rewardText = '';
+        if (result.pointsAwarded > 0 || result.xpAwarded > 0) {
+          rewardText = `\n\n🪙 **Rewards Earned:** +${result.pointsAwarded} QP & +${result.xpAwarded} XP\n` +
+            `💰 **Current Balance:** ${result.newPoints.toLocaleString()} QP (Level ${result.newLevel})`;
+        }
+
+        const voteEmbed = new EmbedBuilder()
+          .setColor(0x00b4d8)
+          .setTitle('✅ Vote Recorded!')
+          .setDescription(
+            `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
+            `Thank you for participating in the community vote!`
+          )
+          .setFooter({ text: 'Questify Community Polls' });
+
+        return interaction.editReply({ embeds: [voteEmbed] });
+      }
 
       // --- SELECT: DRAW RAFFLE WINNER (ADMIN) ---
       if (selectId === 'select_draw_raffle') {

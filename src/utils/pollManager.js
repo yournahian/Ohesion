@@ -3,6 +3,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { getLevelFromXp } from './levelCalculator.js';
@@ -21,7 +23,67 @@ function createProgressBar(percentage, length = 12) {
 }
 
 /**
+ * Helper to parse custom options, recognizing custom emojis or prefixes provided by admin.
+ */
+export function parsePollOption(rawOpt, index) {
+  const trimmed = rawOpt.trim();
+  const defaultEmojis = [
+    '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣',
+    '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟',
+    '🇦', '🇧', '🇨', '🇩', '🇪',
+    '🇫', '🇬', '🇭', '🇮', '🇯',
+    '🇰', '🇱', '🇲', '🇳', '🇴',
+    '🇵', '🇶', '🇷', '🇸', '🇹'
+  ];
+
+  // Check for custom Discord emoji: <:name:id> or <a:name:id>
+  const customMatch = trimmed.match(/^(<a?:\w+:(\d+)>)\s*(.*)$/);
+  if (customMatch) {
+    return {
+      raw: trimmed,
+      label: customMatch[3] || trimmed,
+      buttonEmoji: customMatch[2],
+      displayEmoji: customMatch[1],
+      isCustom: true,
+    };
+  }
+
+  // Check for standard unicode emoji at start of option
+  const unicodeMatch = trimmed.match(/^([\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}✅❌🟢🔴⚪🔵🟡🟣🟠⭐🔥💎⚡👍👎🎉])\s*(.*)$/u);
+  if (unicodeMatch) {
+    return {
+      raw: trimmed,
+      label: unicodeMatch[2] || trimmed,
+      buttonEmoji: unicodeMatch[1],
+      displayEmoji: unicodeMatch[1],
+      isCustom: false,
+    };
+  }
+
+  // Check for number/letter prefix like "1. Option" or "A) Option"
+  const prefixMatch = trimmed.match(/^([A-Za-z0-9]+[.)])\s*(.*)$/);
+  if (prefixMatch) {
+    return {
+      raw: trimmed,
+      label: prefixMatch[2] || trimmed,
+      buttonEmoji: defaultEmojis[index] || '🔹',
+      displayEmoji: `**[${prefixMatch[1]}]**`,
+      isCustom: false,
+    };
+  }
+
+  return {
+    raw: trimmed,
+    label: trimmed,
+    buttonEmoji: defaultEmojis[index] || '🔹',
+    displayEmoji: defaultEmojis[index] || `**[${index + 1}]**`,
+    isCustom: false,
+  };
+}
+
+/**
  * Builds the interactive Discord message payload for a Community Poll.
+ * Supports fully customized choices with dynamic multi-row buttons or select menus.
  */
 export function buildPollPayload(poll) {
   const expireTimestampSec = Math.floor(new Date(poll.expires_at).getTime() / 1000);
@@ -40,25 +102,33 @@ export function buildPollPayload(poll) {
     }
   }
 
-  const emojis = [
-    '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣',
-    '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟',
-    '🇦', '🇧', '🇨', '🇩', '🇪',
-    '🇫', '🇬', '🇭', '🇮', '🇯',
-    '🇰', '🇱', '🇲', '🇳', '🇴'
-  ];
-
   // Build the options visual display with percentages and progress bars
-  const optionsText = poll.options
-    .map((opt, idx) => {
-      const count = voteCounts[idx] || 0;
-      const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
-      const bar = createProgressBar(pct, 10);
-      const emoji = emojis[idx] || `**[${idx + 1}]**`;
+  const lines = [];
+  for (let idx = 0; idx < poll.options.length; idx++) {
+    const opt = poll.options[idx];
+    const parsed = parsePollOption(opt, idx);
+    const count = voteCounts[idx] || 0;
+    const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+    const bar = createProgressBar(pct, 10);
 
-      return `${emoji} **${opt}**\n\`${bar}\` **${pct}%** (${count.toLocaleString()} vote${count === 1 ? '' : 's'})`;
-    })
-    .join('\n\n');
+    lines.push(
+      `${parsed.displayEmoji} **${parsed.label}**\n\`${bar}\` **${pct}%** (${count.toLocaleString()} vote${count === 1 ? '' : 's'})`
+    );
+  }
+
+  // Ensure embed description does not exceed Discord's 4096 character limit
+  let optionsText = lines.join('\n\n');
+  if (optionsText.length > 3400) {
+    let curLength = 0;
+    const truncated = [];
+    for (const line of lines) {
+      if (curLength + line.length + 2 > 3200) break;
+      truncated.push(line);
+      curLength += line.length + 2;
+    }
+    const remaining = lines.length - truncated.length;
+    optionsText = truncated.join('\n\n') + `\n\n*... and ${remaining} more options (select via dropdown menu below)*`;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(isExpired ? 0x6c757d : 0x00b4d8) // Ocean cyan or muted gray if ended
@@ -72,25 +142,66 @@ export function buildPollPayload(poll) {
     .setFooter({ text: `Poll ID: ${poll.poll_id} • 1 Vote Per Member` })
     .setTimestamp();
 
-  // Dynamically chunk buttons into ActionRows of up to 5 buttons each (up to 25 total)
   const components = [];
-  const maxButtons = Math.min(poll.options.length, 25);
 
-  for (let i = 0; i < maxButtons; i += 5) {
-    const row = new ActionRowBuilder();
-    const slice = poll.options.slice(i, i + 5);
-    slice.forEach((opt, relIdx) => {
-      const globalIdx = i + relIdx;
-      row.addComponents(
-        new ButtonBuilder()
+  // If 25 options or fewer: use interactive buttons chunked into ActionRows (up to 5 buttons per row)
+  if (poll.options.length <= 25) {
+    for (let i = 0; i < poll.options.length; i += 5) {
+      const row = new ActionRowBuilder();
+      const slice = poll.options.slice(i, i + 5);
+      slice.forEach((opt, relIdx) => {
+        const globalIdx = i + relIdx;
+        const parsed = parsePollOption(opt, globalIdx);
+        const btn = new ButtonBuilder()
           .setCustomId(`poll_vote_${poll.poll_id}_${globalIdx}`)
-          .setLabel(opt.slice(0, 70))
-          .setEmoji(emojis[globalIdx] || '🔹')
+          .setLabel(parsed.label.slice(0, 75))
           .setStyle(ButtonStyle.Primary)
-          .setDisabled(isExpired)
-      );
-    });
-    components.push(row);
+          .setDisabled(isExpired);
+
+        if (parsed.buttonEmoji) {
+          try {
+            btn.setEmoji(parsed.buttonEmoji);
+          } catch (_) {}
+        }
+        row.addComponents(btn);
+      });
+      components.push(row);
+    }
+  } else {
+    // If more than 25 choices (up to 125 choices): use StringSelectMenus (25 options per row, up to 5 rows)
+    const maxSelectRows = Math.min(Math.ceil(poll.options.length / 25), 5);
+    for (let r = 0; r < maxSelectRows; r++) {
+      const start = r * 25;
+      const end = Math.min(start + 25, poll.options.length);
+      const slice = poll.options.slice(start, end);
+
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`poll_select_vote_${poll.poll_id}_${r}`)
+        .setPlaceholder(`Select your vote (Choices ${start + 1} - ${end})`)
+        .setDisabled(isExpired);
+
+      const menuOptions = slice.map((opt, relIdx) => {
+        const globalIdx = start + relIdx;
+        const parsed = parsePollOption(opt, globalIdx);
+        const optCount = voteCounts[globalIdx] || 0;
+        const optPct = totalVotes > 0 ? Math.round((optCount / totalVotes) * 100) : 0;
+
+        const optBuilder = new StringSelectMenuOptionBuilder()
+          .setLabel(parsed.label.slice(0, 95))
+          .setValue(String(globalIdx))
+          .setDescription(`${optCount} vote${optCount === 1 ? '' : 's'} (${optPct}%)`);
+
+        if (parsed.buttonEmoji) {
+          try {
+            optBuilder.setEmoji(parsed.buttonEmoji);
+          } catch (_) {}
+        }
+        return optBuilder;
+      });
+
+      selectMenu.addOptions(menuOptions);
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+    }
   }
 
   return { embeds: [embed], components };
