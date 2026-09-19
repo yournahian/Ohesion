@@ -64,8 +64,13 @@ import {
   purchaseCosmeticItem,
   getUserCosmetics,
 } from '../modules/battle/battleCosmetics.js';
-import { placeBet } from '../modules/battle/battleBetting.js';
-import { stopRecording, getRecordingStatus } from '../utils/audioRecorder.js';
+import {
+  stopRecording,
+  getRecordingStatus,
+  startRecording,
+  cancelRecording,
+} from '../utils/audioRecorder.js';
+import { getActiveAiProvider } from '../utils/callTranscriber.js';
 
 /**
  * Checks if the interacting member has Administrator or ManageGuild permissions.
@@ -513,6 +518,270 @@ export default {
             content: `❌ Error finalizing recording: ${err.message}`,
           });
         }
+      }
+
+      // --- ADMIN VOICE RECORDER & NOTES UI CONTROLS ---
+      if (customId === 'admin_record_vc') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: You need `Manage Server` or `Administrator` permissions to manage recordings.',
+            ephemeral: true,
+          });
+        }
+
+        const activeStatus = getRecordingStatus(guildId);
+        if (activeStatus) {
+          const embed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🔴 Multi-Track Voice Recording Active')
+            .setDescription(
+              `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+              `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+              `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+              `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n` +
+              `• **Started By:** ${activeStatus.initiatedBy}\n\n` +
+              `Click **Stop & Process Deliverables** when you want to conclude the session.`
+            )
+            .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Questify Podcast Engine` })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('record_stop')
+              .setLabel('Stop & Process Deliverables')
+              .setEmoji('⏹️')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_refresh')
+              .setLabel('Refresh Status')
+              .setEmoji('🔄')
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_cancel')
+              .setLabel('Cancel / Discard')
+              .setEmoji('❌')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          if (interaction.replied || interaction.deferred) {
+            return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+          }
+          return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+        }
+
+        // Fetch voice channels
+        await interaction.guild.channels.fetch().catch(() => null);
+        const voiceChannels = Array.from(interaction.guild.channels.cache.filter((c) => c.isVoiceBased()).values());
+
+        if (voiceChannels.length === 0) {
+          return interaction.reply({
+            content: '⚠️ No voice channels found in this server. Please create a voice channel first!',
+            ephemeral: true,
+          });
+        }
+
+        const aiProvider = getActiveAiProvider();
+        let aiProviderLabel = 'None (Audio Only ready)';
+        if (aiProvider === 'groq') aiProviderLabel = '🟢 Groq Cloud (Free Whisper Turbo + LLaMA 3.3)';
+        else if (aiProvider === 'gemini') aiProviderLabel = '🟢 Google Gemini 1.5 Flash (Free)';
+        else if (aiProvider === 'openai') aiProviderLabel = '🟡 OpenAI Whisper';
+
+        const options = voiceChannels.slice(0, 25).map((vc) => {
+          const count = interaction.guild.voiceStates.cache.filter((vs) => vs.channelId === vc.id && !vs.member?.user?.bot).size;
+          return new StringSelectMenuOptionBuilder()
+            .setLabel(vc.name.slice(0, 50))
+            .setDescription(`${count} active member${count === 1 ? '' : 's'} connected`)
+            .setValue(vc.id)
+            .setEmoji(vc.type === ChannelType.GuildStageVoice ? '🎭' : '🔊');
+        });
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('select_rec_target')
+          .setPlaceholder('Select Voice Channel to Record')
+          .addOptions(options);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('🎙️ Multi-Track Voice Recorder & AI Notes Dashboard')
+          .setDescription(
+            `Choose a voice channel from the menu below to configure your recording session.\n\n` +
+            `**Output Options Available:**\n` +
+            `• 🎙️ **Both (Default):** Multi-track audio stems (\`.zip\`) + Master mix (\`.mp3\`) + AI Dialogue Script (\`.md\`) + Executive Action Notes (\`.md\`)\n` +
+            `• 🎵 **Audio Only:** Isolated stems + Master mix (100% local, 0 AI calls, no API key needed)\n` +
+            `• 📝 **Script & Notes Only:** AI transcription & summary (audio auto-deleted after processing)\n\n` +
+            `*Active AI Engine:* **${aiProviderLabel}**`
+          )
+          .setFooter({ text: 'Questify Visual Recording Deck • 100% UI Driven' });
+
+        if (interaction.replied || interaction.deferred) {
+          return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+        }
+        return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+      }
+
+      if (customId === 'admin_rec_refresh') {
+        const activeStatus = getRecordingStatus(guildId);
+        if (!activeStatus) {
+          return interaction.update({
+            content: 'ℹ️ No recording session is currently active.',
+            embeds: [],
+            components: [],
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle('🔴 Multi-Track Voice Recording Active')
+          .setDescription(
+            `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+            `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
+            `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
+            `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n` +
+            `• **Started By:** ${activeStatus.initiatedBy}\n\n` +
+            `Click **Stop & Process Deliverables** when you want to conclude the session.`
+          )
+          .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Refreshed just now` })
+          .setTimestamp();
+
+        return interaction.update({ embeds: [embed] });
+      }
+
+      if (customId === 'admin_rec_cancel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: You need `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const cancelled = cancelRecording(guildId);
+        if (cancelled) {
+          return interaction.update({
+            content: '🛑 **Recording cancelled.** Audio capture was stopped and all temporary session files have been safely deleted.',
+            embeds: [],
+            components: [],
+          });
+        }
+        return interaction.update({
+          content: 'ℹ️ No active recording session was running.',
+          embeds: [],
+          components: [],
+        });
+      }
+
+      if (customId.startsWith('admin_rec_start_')) {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: You need `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        // customId format: admin_rec_start_<channelId>_<mode>
+        const parts = customId.replace('admin_rec_start_', '').split('_');
+        const targetChannelId = parts[0];
+        const mode = parts[1] || 'both';
+
+        const channel = interaction.guild?.channels?.cache?.get(targetChannelId);
+        if (!channel) {
+          return interaction.update({
+            content: '❌ Voice channel not found. Please try again.',
+            embeds: [],
+            components: [],
+          });
+        }
+
+        const permissions = channel.permissionsFor(interaction.client.user);
+        if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions?.has(PermissionFlagsBits.Speak)) {
+          return interaction.update({
+            content: `❌ I do not have permission to **Connect** or **Speak** in <#${channel.id}>. Please grant Questify voice permissions!`,
+            embeds: [],
+            components: [],
+          });
+        }
+
+        await interaction.deferUpdate();
+
+        try {
+          const session = await startRecording({
+            voiceChannel: channel,
+            client: interaction.client,
+            mode,
+            initiatedBy: interaction.user,
+          });
+
+          const modeDisplay = {
+            both: '🎙️ **Both** (Audio Stems + Master MP3 + Dialogue Script + Notes)',
+            audio: '🎵 **Audio Only** (Isolated Stems + Master MP3, 0 AI)',
+            script: '📝 **Script & Notes Only** (AI Transcription, Audio deleted)',
+          }[mode];
+
+          const embed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🔴 Multi-Track Voice Recording Active')
+            .setDescription(
+              `Questify is now recording in **<#${channel.id}>**!\n\n` +
+              `• **Output Mode:** ${modeDisplay}\n` +
+              `• **Started By:** <@${interaction.user.id}>\n` +
+              `• **Stem Synchronization:** Timeline-aligned from \`00:00\`\n\n` +
+              `*Each member who speaks will be recorded to their own isolated audio track. When finished, click **Stop & Process Deliverables**.*`
+            )
+            .setFooter({ text: `Session ID: ${session.sessionId} • Questify Podcast Engine` })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('record_stop')
+              .setLabel('Stop & Process Deliverables')
+              .setEmoji('⏹️')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_refresh')
+              .setLabel('Refresh Status')
+              .setEmoji('🔄')
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId('admin_rec_cancel')
+              .setLabel('Cancel / Discard')
+              .setEmoji('❌')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          await interaction.editReply({ embeds: [embed], components: [row] });
+
+          // Send notification card into the text channel
+          const alertEmbed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🎙️ Community Call Recording In Progress')
+            .setDescription(
+              `A multi-track recording session has been started in **<#${channel.id}>** by <@${interaction.user.id}>.\n` +
+              `• **Mode:** ${modeDisplay}\n\n` +
+              `*Speakers will be captured on isolated audio stems with synchronized timelines.*`
+            )
+            .setFooter({ text: 'Questify Audio & AI Engine' });
+
+          const alertRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('record_stop')
+              .setLabel('Stop Recording')
+              .setEmoji('⏹️')
+              .setStyle(ButtonStyle.Danger)
+          );
+
+          if (interaction.channel && interaction.channel.id !== channel.id) {
+            await interaction.channel.send({ embeds: [alertEmbed], components: [alertRow] }).catch(() => null);
+          }
+        } catch (err) {
+          console.error('[ADMIN REC START ERROR]:', err);
+          return interaction.editReply({
+            content: `❌ Could not start recording: ${err.message}`,
+            embeds: [],
+            components: [],
+          });
+        }
+        return;
       }
 
       // --- A. ADMIN MODAL TRIGGERS (Show modal before deferring) ---
@@ -4032,6 +4301,67 @@ export default {
         }
 
         return interaction.editReply(payload);
+      }
+
+      // --- SELECT: VOICE SNAPSHOT TARGET (ADMIN) ---
+      if (selectId === 'select_rec_target') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to configure voice recordings.',
+            ephemeral: true,
+          });
+        }
+
+        const targetChannelId = interaction.values[0];
+        const ch = interaction.guild?.channels?.cache?.get(targetChannelId);
+        const channelName = ch ? ch.name : 'Selected Channel';
+
+        const aiProvider = getActiveAiProvider();
+        let aiProviderLabel = 'None (Audio Only ready)';
+        if (aiProvider === 'groq') aiProviderLabel = '🟢 Groq Cloud (Free Whisper Turbo + LLaMA 3.3)';
+        else if (aiProvider === 'gemini') aiProviderLabel = '🟢 Google Gemini 1.5 Flash (Free)';
+        else if (aiProvider === 'openai') aiProviderLabel = '🟡 OpenAI Whisper';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x118ab2)
+          .setTitle(`🎙️ Configure Recording: #${channelName}`)
+          .setDescription(
+            `Target Channel: **<#${targetChannelId}>**\n` +
+            `Active AI Engine: **${aiProviderLabel}**\n\n` +
+            `**Select your desired output mode below:**\n\n` +
+            `🎙️ **Both (Audio + Script + Notes)**\n` +
+            `Produces all isolated audio stems (\`.wav\`), the master podcast mix (\`.mp3\`), the chronological dialogue script (\`.md\`), and executive meeting notes.\n\n` +
+            `🎵 **Audio Only (0 AI / 100% Local)**\n` +
+            `Produces only the audio stems (\`.zip\`) and master mix (\`.mp3\`). Requires zero AI API keys.\n\n` +
+            `📝 **Script & Notes Only**\n` +
+            `Transcribes dialogue and writes meeting notes, then deletes heavy audio files to save server disk space.`
+          )
+          .setFooter({ text: 'Click a button below to launch the recording immediately!' });
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`admin_rec_start_${targetChannelId}_both`)
+            .setLabel('Start: Both (Audio + Script)')
+            .setEmoji('🎙️')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`admin_rec_start_${targetChannelId}_audio`)
+            .setLabel('Start: Audio Only (No AI)')
+            .setEmoji('🎵')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`admin_rec_start_${targetChannelId}_script`)
+            .setLabel('Start: Script & Notes Only')
+            .setEmoji('📝')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('admin_record_vc')
+            .setLabel('Change Channel')
+            .setEmoji('🔙')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.update({ embeds: [embed], components: [row] });
       }
 
       // --- SELECT: VOICE SNAPSHOT TARGET (ADMIN) ---

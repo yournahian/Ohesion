@@ -148,7 +148,12 @@ export default {
         .setCustomId('admin_view_purchases')
         .setLabel('Shop Purchases')
         .setEmoji('🧾')
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('admin_record_vc')
+        .setLabel('Voice Recorder & Notes')
+        .setEmoji('🎙️')
+        .setStyle(ButtonStyle.Success)
     );
 
     return interaction.editReply({

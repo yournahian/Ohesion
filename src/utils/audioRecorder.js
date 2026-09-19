@@ -485,3 +485,30 @@ export function getRecordingStatus(guildId) {
     initiatedBy: session.initiatedBy,
   };
 }
+
+/**
+ * Cancel and discard an active recording session without processing
+ */
+export function cancelRecording(guildId) {
+  const session = activeSessions.get(guildId);
+  if (!session) return false;
+
+  session.isStopping = true;
+  activeSessions.delete(guildId);
+
+  for (const speaker of session.speakers.values()) {
+    try {
+      speaker.fileStream.end();
+    } catch {}
+  }
+
+  try {
+    session.connection.destroy();
+  } catch {}
+
+  try {
+    fs.rmSync(session.sessionDir, { recursive: true, force: true });
+  } catch {}
+
+  return true;
+}
