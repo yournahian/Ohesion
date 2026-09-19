@@ -5,9 +5,11 @@ import {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  AttachmentBuilder,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { getLevelFromXp } from './levelCalculator.js';
+import { generatePollImage } from './pollCanvas.js';
 
 // In-memory cache for ultra-fast response and fallback
 const memoryPolls = new Map();
@@ -83,11 +85,15 @@ export function parsePollOption(rawOpt, index) {
 
 /**
  * Builds the interactive Discord message payload for a Community Poll.
- * Supports fully customized choices with dynamic multi-row buttons or select menus.
+ * Renders the official Discord Poll UI visual card (matching screenshot), supports live vs. hidden results,
+ * and includes dynamic buttons with optional "Add Option" for community members.
  */
-export function buildPollPayload(poll) {
+export async function buildPollPayload(poll) {
   const expireTimestampSec = Math.floor(new Date(poll.expires_at).getTime() / 1000);
   const isExpired = Date.now() > new Date(poll.expires_at).getTime();
+
+  // Results visibility: 'live' (default) shows live percentages; 'ended' hides until poll concludes
+  const showResults = poll.results_visibility !== 'ended' || isExpired;
 
   // Calculate vote counts per option
   const voteCounts = new Array(poll.options.length).fill(0);
@@ -102,50 +108,19 @@ export function buildPollPayload(poll) {
     }
   }
 
-  // Build the options visual display with percentages and progress bars
-  const lines = [];
-  for (let idx = 0; idx < poll.options.length; idx++) {
-    const opt = poll.options[idx];
-    const parsed = parsePollOption(opt, idx);
-    const count = voteCounts[idx] || 0;
-    const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
-    const bar = createProgressBar(pct, 10);
-
-    lines.push(
-      `${parsed.displayEmoji} **${parsed.label}**\n\`${bar}\` **${pct}%** (${count.toLocaleString()} vote${count === 1 ? '' : 's'})`
-    );
+  // Generate visual poll image matching Discord screenshot UI
+  let attachment = null;
+  try {
+    const imageBuffer = generatePollImage(poll, voteCounts, totalVotes, showResults);
+    attachment = new AttachmentBuilder(imageBuffer, { name: `poll_${poll.poll_id}.png` });
+  } catch (err) {
+    console.error('[POLL CANVAS ERROR]:', err);
   }
-
-  // Ensure embed description does not exceed Discord's 4096 character limit
-  let optionsText = lines.join('\n\n');
-  if (optionsText.length > 3400) {
-    let curLength = 0;
-    const truncated = [];
-    for (const line of lines) {
-      if (curLength + line.length + 2 > 3200) break;
-      truncated.push(line);
-      curLength += line.length + 2;
-    }
-    const remaining = lines.length - truncated.length;
-    optionsText = truncated.join('\n\n') + `\n\n*... and ${remaining} more options (select via dropdown menu below)*`;
-  }
-
-  const embed = new EmbedBuilder()
-    .setColor(isExpired ? 0x6c757d : 0x00b4d8) // Ocean cyan or muted gray if ended
-    .setTitle(`📊 Community Poll: ${poll.question}`)
-    .setDescription(
-      `${optionsText}\n\n` +
-      `🪙 **Reward:** **+${poll.reward_points || 0} QP** & **+${poll.reward_xp || 0} XP** per vote\n` +
-      `⏳ **Status:** ${isExpired ? '🔒 **Poll Ended**' : `Ends <t:${expireTimestampSec}:R>`}\n` +
-      `👥 **Total Participants:** **${totalVotes.toLocaleString()}** member${totalVotes === 1 ? '' : 's'}`
-    )
-    .setFooter({ text: `Poll ID: ${poll.poll_id} • 1 Vote Per Member` })
-    .setTimestamp();
 
   const components = [];
 
-  // If 25 options or fewer: use interactive buttons chunked into ActionRows (up to 5 buttons per row)
-  if (poll.options.length <= 25) {
+  // If 24 options or fewer: use interactive buttons chunked into ActionRows (up to 5 buttons per row)
+  if (poll.options.length <= 24) {
     for (let i = 0; i < poll.options.length; i += 5) {
       const row = new ActionRowBuilder();
       const slice = poll.options.slice(i, i + 5);
@@ -167,9 +142,25 @@ export function buildPollPayload(poll) {
       });
       components.push(row);
     }
+
+    // Community Member "Add Option" button if enabled by admin
+    if (poll.allow_user_options && !isExpired && poll.options.length < 24) {
+      const lastRow = components[components.length - 1];
+      const addOptBtn = new ButtonBuilder()
+        .setCustomId(`poll_add_option_${poll.poll_id}`)
+        .setLabel('Add Option')
+        .setEmoji('➕')
+        .setStyle(ButtonStyle.Secondary);
+
+      if (lastRow && lastRow.components.length < 5) {
+        lastRow.addComponents(addOptBtn);
+      } else if (components.length < 5) {
+        components.push(new ActionRowBuilder().addComponents(addOptBtn));
+      }
+    }
   } else {
-    // If more than 25 choices (up to 125 choices): use StringSelectMenus (25 options per row, up to 5 rows)
-    const maxSelectRows = Math.min(Math.ceil(poll.options.length / 25), 5);
+    // If more than 24 choices: use StringSelectMenus
+    const maxSelectRows = Math.min(Math.ceil(poll.options.length / 25), 4);
     for (let r = 0; r < maxSelectRows; r++) {
       const start = r * 25;
       const end = Math.min(start + 25, poll.options.length);
@@ -189,7 +180,11 @@ export function buildPollPayload(poll) {
         const optBuilder = new StringSelectMenuOptionBuilder()
           .setLabel(parsed.label.slice(0, 95))
           .setValue(String(globalIdx))
-          .setDescription(`${optCount} vote${optCount === 1 ? '' : 's'} (${optPct}%)`);
+          .setDescription(
+            showResults
+              ? `${optCount} vote${optCount === 1 ? '' : 's'} (${optPct}%)`
+              : 'Cast secret vote'
+          );
 
         if (parsed.buttonEmoji) {
           try {
@@ -202,9 +197,50 @@ export function buildPollPayload(poll) {
       selectMenu.addOptions(menuOptions);
       components.push(new ActionRowBuilder().addComponents(selectMenu));
     }
+
+    if (poll.allow_user_options && !isExpired && poll.options.length < 100 && components.length < 5) {
+      const addOptBtn = new ButtonBuilder()
+        .setCustomId(`poll_add_option_${poll.poll_id}`)
+        .setLabel('Add Option')
+        .setEmoji('➕')
+        .setStyle(ButtonStyle.Secondary);
+      components.push(new ActionRowBuilder().addComponents(addOptBtn));
+    }
   }
 
-  return { embeds: [embed], components };
+  const payload = {
+    components,
+    files: attachment ? [attachment] : [],
+    embeds: [],
+  };
+
+  // Embed fallback in case canvas is unavailable
+  if (!attachment) {
+    const lines = [];
+    for (let idx = 0; idx < poll.options.length; idx++) {
+      const opt = poll.options[idx];
+      const parsed = parsePollOption(opt, idx);
+      const count = voteCounts[idx] || 0;
+      const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+      const bar = createProgressBar(pct, 10);
+      lines.push(
+        showResults
+          ? `${parsed.displayEmoji} **${parsed.label}**\n\`${bar}\` **${pct}%** (${count.toLocaleString()} votes)`
+          : `${parsed.displayEmoji} **${parsed.label}**`
+      );
+    }
+    const embed = new EmbedBuilder()
+      .setColor(isExpired ? 0x6c757d : 0x5865f2)
+      .setTitle(`📊 ${poll.question}`)
+      .setDescription(
+        `${lines.join('\n\n')}\n\n` +
+        `⏳ **Status:** ${isExpired ? '🔒 **Poll Ended**' : `Ends <t:${expireTimestampSec}:R>`}\n` +
+        `👥 **Total Answers:** **${totalVotes.toLocaleString()}**`
+      );
+    payload.embeds = [embed];
+  }
+
+  return payload;
 }
 
 /**
@@ -214,7 +250,7 @@ export async function savePoll(poll) {
   memoryPolls.set(poll.poll_id, poll);
 
   try {
-    await supabase.from('community_polls').upsert({
+    const record = {
       poll_id: poll.poll_id,
       guild_id: poll.guild_id,
       channel_id: poll.channel_id,
@@ -226,7 +262,11 @@ export async function savePoll(poll) {
       expires_at: poll.expires_at,
       created_by: poll.created_by,
       is_active: poll.is_active,
-    });
+    };
+    if (poll.results_visibility) record.results_visibility = poll.results_visibility;
+    if (poll.allow_user_options !== undefined) record.allow_user_options = poll.allow_user_options;
+
+    await supabase.from('community_polls').upsert(record);
   } catch (err) {
     console.warn('[POLL DB] Saved in memory cache:', err.message);
   }

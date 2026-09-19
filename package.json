@@ -9,6 +9,7 @@
     "deploy": "node deploy-commands.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "@supabase/supabase-js": "^2.49.1",
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.7"

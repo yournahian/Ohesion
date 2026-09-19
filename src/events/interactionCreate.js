@@ -358,14 +358,14 @@ export default {
         const questionInput = new TextInputBuilder()
           .setCustomId('input_poll_question')
           .setLabel('Poll Question / Topic')
-          .setPlaceholder('e.g. Which blockchain should we expand to next?')
+          .setPlaceholder('e.g. What do you prefer?')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_poll_options')
           .setLabel('Poll Choices (Add as many as you want!)')
-          .setPlaceholder('Enter choices (one per line, as many as you want)\n🟢 Bullish\n🔴 Bearish\n⚪ Neutral\n🚀 Moon\n...')
+          .setPlaceholder('Enter choices (one per line)\nDiscord\nstop making polls\nSkype')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
@@ -376,18 +376,19 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        const rewardInput = new TextInputBuilder()
-          .setCustomId('input_poll_reward')
-          .setLabel('Voting Reward: QP & XP (Optional)')
-          .setValue('10, 5')
-          .setPlaceholder('e.g. 10, 5 (QP, XP per vote) or 0, 0')
+        const settingsInput = new TextInputBuilder()
+          .setCustomId('input_poll_settings')
+          .setLabel('Live Results & Community Choices')
+          .setValue('[✓] Live Results  [✓] Allow Member Options')
+          .setPlaceholder('[✓] Live Results  [✓] Allow Member Options (tick/untick)')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
-        const tagInput = new TextInputBuilder()
-          .setCustomId('input_poll_tag')
-          .setLabel('Ping Role / Server Tag (Optional)')
-          .setPlaceholder('e.g. @Socials, @everyone, or role name')
+        const rewardInput = new TextInputBuilder()
+          .setCustomId('input_poll_reward')
+          .setLabel('Rewards & Ping Tag (Optional)')
+          .setValue('10, 5')
+          .setPlaceholder('e.g. 10, 5 (QP, XP) | @Socials or @everyone')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
@@ -395,8 +396,8 @@ export default {
           new ActionRowBuilder().addComponents(questionInput),
           new ActionRowBuilder().addComponents(optionsInput),
           new ActionRowBuilder().addComponents(durationInput),
-          new ActionRowBuilder().addComponents(rewardInput),
-          new ActionRowBuilder().addComponents(tagInput)
+          new ActionRowBuilder().addComponents(settingsInput),
+          new ActionRowBuilder().addComponents(rewardInput)
         );
 
         return interaction.showModal(modal);
@@ -1568,7 +1569,7 @@ export default {
         }
 
         // Update the live poll card with new vote count and percentage bars
-        const updatedPayload = buildPollPayload(result.poll);
+        const updatedPayload = await buildPollPayload(result.poll);
         await interaction.message.edit(updatedPayload).catch(() => null);
 
         let rewardText = '';
@@ -1587,6 +1588,36 @@ export default {
           .setFooter({ text: 'Questify Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
+      }
+
+      // --- COMMUNITY POLL: ADD OPTION BUTTON (MEMBER PROPOSED CHOICES) ---
+      if (customId.startsWith('poll_add_option_')) {
+        const pollId = customId.replace('poll_add_option_', '');
+        const poll = await getPoll(pollId);
+        if (!poll) {
+          return interaction.reply({ content: '❌ Poll not found or expired.', ephemeral: true });
+        }
+        if (Date.now() > new Date(poll.expires_at).getTime()) {
+          return interaction.reply({ content: '⏳ This poll has already concluded! New options cannot be added.', ephemeral: true });
+        }
+        if (poll.options.length >= 24) {
+          return interaction.reply({ content: '⚠️ Maximum choice limit (24 options) reached for this poll.', ephemeral: true });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_poll_add_opt_${pollId}`)
+          .setTitle('➕ Add Poll Option');
+
+        const newOptionInput = new TextInputBuilder()
+          .setCustomId('input_poll_new_option')
+          .setLabel('Your Proposed Choice')
+          .setPlaceholder('Enter choice name (e.g. Telegram or Revolt)')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(60)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(newOptionInput));
+        return interaction.showModal(modal);
       }
 
       // --- O. CHAOS CLASH: JOIN LOBBY BUTTON ---
@@ -2624,13 +2655,13 @@ export default {
         const question = interaction.fields.getTextInputValue('input_poll_question').trim();
         const rawOptions = interaction.fields.getTextInputValue('input_poll_options').trim();
         const durationStr = interaction.fields.getTextInputValue('input_poll_duration').trim();
-        let rewardStr = '';
+        let settingsStr = '';
         try {
-          rewardStr = interaction.fields.getTextInputValue('input_poll_reward') || '';
+          settingsStr = interaction.fields.getTextInputValue('input_poll_settings') || '';
         } catch (_) {}
-        let tagStr = '';
+        let rewardAndTagStr = '';
         try {
-          tagStr = interaction.fields.getTextInputValue('input_poll_tag') || '';
+          rewardAndTagStr = interaction.fields.getTextInputValue('input_poll_reward') || '';
         } catch (_) {}
 
         // Parse options (one per line, semicolon, or comma)
@@ -2670,13 +2701,55 @@ export default {
         }
         const expiresAt = new Date(Date.now() + durationMs).toISOString();
 
-        // Parse rewards
+        // Parse Settings (Live Results & Member Added Choices)
+        const lowerSettings = settingsStr.toLowerCase();
+        let resultsVisibility = 'live';
+        if (
+          lowerSettings.includes('[ ] live') ||
+          lowerSettings.includes('[-] live') ||
+          lowerSettings.includes('hide') ||
+          lowerSettings.includes('hidden') ||
+          lowerSettings.includes('after end') ||
+          lowerSettings.includes('after duration') ||
+          lowerSettings.includes('secret') ||
+          lowerSettings.includes('deny')
+        ) {
+          resultsVisibility = 'ended';
+        }
+
+        let allowUserOptions = false;
+        if (
+          lowerSettings.includes('[✓] allow') ||
+          lowerSettings.includes('[x] allow') ||
+          lowerSettings.includes('allow member') ||
+          lowerSettings.includes('allow user') ||
+          lowerSettings.includes('user choices: yes') ||
+          lowerSettings.includes('allow choices: yes') ||
+          lowerSettings.includes('allow options: yes') ||
+          lowerSettings.includes('yes')
+        ) {
+          allowUserOptions = true;
+        }
+
+        // Parse rewards & ping tag
         let rewardPoints = 0;
         let rewardXp = 0;
-        if (rewardStr) {
-          const parts = rewardStr.split(/[,|\s]+/).filter(Boolean);
-          if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
-          if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
+        let tagStr = '';
+
+        if (rewardAndTagStr) {
+          if (rewardAndTagStr.includes('|')) {
+            const [rwPart, tgPart] = rewardAndTagStr.split('|');
+            const parts = (rwPart || '').split(/[,|\s]+/).filter(Boolean);
+            if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
+            if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
+            tagStr = (tgPart || '').trim();
+          } else if (rewardAndTagStr.includes('@') || rewardAndTagStr.toLowerCase().includes('everyone') || rewardAndTagStr.toLowerCase().includes('here')) {
+            tagStr = rewardAndTagStr.trim();
+          } else {
+            const parts = rewardAndTagStr.split(/[,|\s]+/).filter(Boolean);
+            if (parts[0]) rewardPoints = parseInt(parts[0], 10) || 0;
+            if (parts[1]) rewardXp = parseInt(parts[1], 10) || 0;
+          }
         }
 
         // Resolve tag
@@ -2718,9 +2791,11 @@ export default {
           expires_at: expiresAt,
           created_by: discordId,
           is_active: true,
+          results_visibility: resultsVisibility,
+          allow_user_options: allowUserOptions,
         };
 
-        const payload = buildPollPayload(pollData);
+        const payload = await buildPollPayload(pollData);
         if (tagMention) {
           payload.content = tagMention;
           payload.allowedMentions = { parse: ['roles', 'users', 'everyone'] };
@@ -2734,10 +2809,63 @@ export default {
           content:
             `✅ **Community Poll Launched Successfully!**\n\n` +
             `• **Topic:** ${question}\n` +
-            `• **Options:** ${options.length} choices\n` +
+            `• **Choices:** ${options.length} options\n` +
+            `• **Results Visibility:** ${resultsVisibility === 'ended' ? '🔒 Hidden until poll ends' : '👁️ Live results visible'}\n` +
+            `• **Community Choices:** ${allowUserOptions ? '✅ Members can add options' : '❌ Disabled'}\n` +
             `• **Reward:** +${rewardPoints} QP & +${rewardXp} XP per vote\n` +
-            `• **Duration:** Ends <t:${Math.floor(new Date(expiresAt).getTime() / 1000)}:R>\n\n` +
-            `Members can cast their vote using the interactive buttons!`,
+            `• **Duration:** Ends <t:${Math.floor(new Date(expiresAt).getTime() / 1000)}:R>`,
+        });
+      }
+
+      // --- MODAL: COMMUNITY POLL - MEMBER PROPOSED NEW CHOICE ---
+      if (modalId.startsWith('modal_poll_add_opt_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const pollId = modalId.replace('modal_poll_add_opt_', '');
+
+        const newChoice = interaction.fields.getTextInputValue('input_poll_new_option').trim();
+        if (!newChoice) {
+          return interaction.editReply({ content: '❌ Option text cannot be empty.' });
+        }
+
+        const poll = await getPoll(pollId);
+        if (!poll) {
+          return interaction.editReply({ content: '❌ Poll not found or expired.' });
+        }
+
+        if (Date.now() > new Date(poll.expires_at).getTime()) {
+          return interaction.editReply({ content: '⏳ This poll has already concluded! New choices cannot be added.' });
+        }
+
+        if (poll.options.length >= 24) {
+          return interaction.editReply({ content: '⚠️ Maximum choice limit reached for this poll.' });
+        }
+
+        // Check if option already exists (case-insensitive)
+        const isDuplicate = poll.options.some((opt) => opt.trim().toLowerCase() === newChoice.toLowerCase());
+        if (isDuplicate) {
+          return interaction.editReply({
+            content: `⚠️ The option **"${newChoice}"** already exists in this poll!`,
+          });
+        }
+
+        // Append new option
+        poll.options.push(newChoice);
+        await savePoll(poll);
+
+        // Update the live poll message with new button and updated canvas
+        try {
+          const updatedPayload = await buildPollPayload(poll);
+          const targetChannel = interaction.channel || (poll.channel_id ? await interaction.client.channels.fetch(poll.channel_id).catch(() => null) : null);
+          const targetMsg = interaction.message || (targetChannel && poll.message_id ? await targetChannel.messages.fetch(poll.message_id).catch(() => null) : null);
+          if (targetMsg) {
+            await targetMsg.edit(updatedPayload);
+          }
+        } catch (err) {
+          console.error('[POLL ADD OPTION RE-RENDER ERROR]:', err);
+        }
+
+        return interaction.editReply({
+          content: `✅ Successfully added **"${newChoice}"** to the poll!\nYou can now cast your vote for it below.`,
         });
       }
 
@@ -3257,6 +3385,80 @@ export default {
           .setFooter({ text: 'Questify Community Marketplace' });
 
         return interaction.editReply({ embeds: [successEmbed] });
+      }
+    }
+
+    // ==========================================
+    // 4. HANDLE STRING SELECT MENUS
+    // ==========================================
+    if (interaction.isStringSelectMenu()) {
+      const selectId = interaction.customId;
+      const guildId = interaction.guildId;
+      const discordId = interaction.user.id;
+
+      // --- SELECT: COMMUNITY POLL VOTE (>24 CHOICES) ---
+      if (selectId.startsWith('poll_select_vote_')) {
+        const parts = selectId.split('_');
+        const pollId = parts[3];
+        const selectedIndex = parseInt(interaction.values[0], 10);
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await castPollVote({
+          pollId,
+          guildId,
+          discordId,
+          optionIndex: selectedIndex,
+          client: interaction.client,
+        });
+
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        // Update the live poll card with new vote count and percentage bars
+        const updatedPayload = await buildPollPayload(result.poll);
+        await interaction.message.edit(updatedPayload).catch(() => null);
+
+        let rewardText = '';
+        if (result.pointsAwarded > 0 || result.xpAwarded > 0) {
+          rewardText = `\n\n🪙 **Rewards Earned:** +${result.pointsAwarded} QP & +${result.xpAwarded} XP\n` +
+            `💰 **Current Balance:** ${result.newPoints.toLocaleString()} QP (Level ${result.newLevel})`;
+        }
+
+        const voteEmbed = new EmbedBuilder()
+          .setColor(0x00b4d8)
+          .setTitle('✅ Vote Recorded!')
+          .setDescription(
+            `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
+            `Thank you for participating in the community vote!`
+          )
+          .setFooter({ text: 'Questify Community Polls' });
+
+        return interaction.editReply({ embeds: [voteEmbed] });
+      }
+
+      // --- SELECT: COSMETIC ITEM PURCHASE ---
+      if (selectId === 'select_buy_cosmetic') {
+        const itemId = interaction.values[0];
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await purchaseCosmeticItem({
+          guildId,
+          discordId,
+          itemId,
+        });
+
+        if (!result.success) {
+          return interaction.editReply({ content: result.message });
+        }
+
+        return interaction.editReply({
+          content:
+            `✨ **Cosmetic Equipped!** You unlocked **${result.item.name}** for **${result.cost} QP**!\n` +
+            `💰 **Remaining Balance:** ${result.newBalance.toLocaleString()} QP\n` +
+            `Your arena fighter tag is now updated in all matches!`,
+        });
       }
     }
   },
