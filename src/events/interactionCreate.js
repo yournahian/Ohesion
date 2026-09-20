@@ -323,6 +323,36 @@ async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count
 }
 
 /**
+ * Automatically fetches YouTube video metadata and thumbnail using public oEmbed API.
+ * @param {string} url 
+ */
+async function fetchYouTubeMetadata(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await fetch(oembedUrl);
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        title: data.title,
+        author: data.author_name,
+        thumbnailUrl: data.thumbnail_url || `https://img.youtube.com/vi/${url.match(/(?:watch\?v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)?.[1]}/hqdefault.jpg`,
+      };
+    }
+  } catch (_) {}
+
+  const match = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  if (match) {
+    return {
+      title: null,
+      author: null,
+      thumbnailUrl: `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg`,
+    };
+  }
+  return null;
+}
+
+/**
  * Processes custom snippet lines:
  * - Resolves Discord role tags (e.g. @Socials, @Verified) to <@&roleId>
  * - Converts Twitter / X handle mentions (e.g. @goldfishggbr or @account) into clickable links [@handle](https://x.com/handle)
@@ -1638,11 +1668,19 @@ export default {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
+        const imageInput = new TextInputBuilder()
+          .setCustomId('input_platform_image')
+          .setLabel('Custom Banner Image URL (Optional)')
+          .setPlaceholder('Auto-fetched for YouTube (or paste custom https://...)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
         modal.addComponents(
           new ActionRowBuilder().addComponents(platformInput),
           new ActionRowBuilder().addComponents(urlInput),
           new ActionRowBuilder().addComponents(pointsInput),
-          new ActionRowBuilder().addComponents(actionsInput)
+          new ActionRowBuilder().addComponents(actionsInput),
+          new ActionRowBuilder().addComponents(imageInput)
         );
 
         return interaction.showModal(modal);
@@ -4311,6 +4349,10 @@ export default {
         const url = interaction.fields.getTextInputValue('input_platform_url').trim();
         const points = parseInt(interaction.fields.getTextInputValue('input_platform_points'), 10) || 50;
         const actions = interaction.fields.getTextInputValue('input_platform_actions').trim();
+        let customImage = '';
+        try {
+          customImage = interaction.fields.getTextInputValue('input_platform_image')?.trim() || '';
+        } catch (_) {}
 
         const feedChannel = interaction.guild.channels.cache.find(
           (c) => c.isTextBased() && (c.name.includes('cohesion-feed') || c.name.includes('quest-feed') || c.name.includes('engage'))
@@ -4319,20 +4361,44 @@ export default {
         let platformTitle = 'CoinMarketCap Gravity Quest';
         let platformEmoji = '📈';
         let color = 0x2a75d3;
+        let bannerImage = customImage || null;
+        let thumbnailImage = 'https://s2.coinmarketcap.com/static/cloud/img/coinmarketcap_logo.png';
 
         if (platform.includes('yt') || platform.includes('youtube')) {
           platformTitle = 'YouTube Video Quest';
           platformEmoji = '▶️';
           color = 0xff0000;
+          thumbnailImage = 'https://cdn-icons-png.flaticon.com/512/1384/1384060.png';
+
+          // Auto-fetch YouTube metadata & high-resolution video thumbnail
+          const ytMeta = await fetchYouTubeMetadata(url);
+          if (ytMeta) {
+            if (ytMeta.title) {
+              platformTitle = ytMeta.title.length > 55 ? `${ytMeta.title.slice(0, 52)}...` : ytMeta.title;
+            }
+            if (!bannerImage && ytMeta.thumbnailUrl) {
+              bannerImage = ytMeta.thumbnailUrl;
+            }
+          }
         } else if (platform.includes('tiktok')) {
           platformTitle = 'TikTok Clip Quest';
           platformEmoji = '🎵';
           color = 0x00f2fe;
+          thumbnailImage = 'https://cdn-icons-png.flaticon.com/512/3046/3046121.png';
+        } else if (platform.includes('cmc') || platform.includes('coinmarketcap')) {
+          platformTitle = 'CoinMarketCap Gravity Quest';
+          platformEmoji = '📈';
+          color = 0x2a75d3;
+          thumbnailImage = 'https://s2.coinmarketcap.com/static/cloud/img/coinmarketcap_logo.png';
+          if (!bannerImage) {
+            bannerImage = 'https://assets-global.website-files.com/64b58e7232230ef1d48c89dc/64ca5d9f00d8d5df5164bc41_CoinMarketCap-Logo.png';
+          }
         }
 
         const embed = new EmbedBuilder()
           .setColor(color)
           .setTitle(`${platformEmoji} ${platformTitle}`)
+          .setURL(url)
           .setDescription(
             `Complete the required actions to earn **+${points} Cohesion Points (CP)**!\n\n` +
             `🔗 **Target Link:** [Click to Open Link](${url})\n` +
@@ -4341,6 +4407,13 @@ export default {
           )
           .setFooter({ text: 'Cohesion Multi-Platform Verification Engine' })
           .setTimestamp();
+
+        if (thumbnailImage) {
+          embed.setThumbnail(thumbnailImage);
+        }
+        if (bannerImage) {
+          embed.setImage(bannerImage);
+        }
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
