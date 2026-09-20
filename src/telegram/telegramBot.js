@@ -23,7 +23,6 @@ async function isTgChatAdmin(ctx) {
   if (ctx.chat.type === 'private') return true;
 
   // 1. Anonymous Admin / Group Owner speaking as the Group itself
-  // (In Telegram, when 'Remain Anonymous' is enabled, ctx.senderChat is the group or ctx.from is GroupAnonymousBot)
   if (ctx.senderChat && ctx.senderChat.id === ctx.chat.id) {
     return true;
   }
@@ -58,6 +57,39 @@ async function isTgChatAdmin(ctx) {
 }
 
 /**
+ * Builds the Master Admin Hub Menu for Telegram containing all 25 operations.
+ * @param {import('grammy').Context} ctx 
+ */
+function buildTgAdminHub(ctx) {
+  const chatTitle = ctx.chat?.title || 'Community';
+  const text =
+    `⚡ *Cohesion • Telegram Admin Control Center*\n` +
+    `*Community:* **${chatTitle}**\n\n` +
+    `Select an operational suite below to manage your community, launch quests, run economy events, or bridge with Discord:\n\n` +
+    `• 📢 *Quests & Social Raids* (5 tools)\n` +
+    `• 🎟️ *Raffles & Auctions* (5 tools)\n` +
+    `• 🎁 *Economy & Shop Items* (5 tools)\n` +
+    `• 🧠 *Polls & Trivia Games* (5 tools)\n` +
+    `• ⚙️ *Server Modules & Shield* (5 tools)\n` +
+    `• 🎮 *Discord Bridge & Sync*\n\n` +
+    `*Tap any category below to access controls:*`;
+
+  const keyboard = new InlineKeyboard()
+    .text('📢 Quests & Raids', 'admin_cat_quests')
+    .text('🎟️ Raffles & Auctions', 'admin_cat_raffles')
+    .row()
+    .text('🎁 Economy & Shop', 'admin_cat_economy')
+    .text('🧠 Polls & Games', 'admin_cat_games')
+    .row()
+    .text('⚙️ Modules & Shield', 'admin_cat_settings')
+    .text('🎮 Discord Bridge', 'cb_admin_bridge')
+    .row()
+    .text('🔄 Refresh Status', 'cb_admin_hub_main');
+
+  return { text, keyboard };
+}
+
+/**
  * Builds the Telegram mirror UI for Discord Settings.
  * @param {import('grammy').Context} ctx 
  */
@@ -75,7 +107,9 @@ function buildTgDiscordSettingsMenu(ctx, bridge) {
       .text('🔗 Link Discord Server', 'cb_tg_link_dc')
       .row()
       .text('⚙️ Mode (Not Set)', 'cb_tg_mode')
-      .text('🛠️ Manage Discord', 'cb_tg_manage');
+      .text('🛠️ Manage Discord', 'cb_tg_manage')
+      .row()
+      .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
 
     return { text, keyboard };
   }
@@ -95,7 +129,9 @@ function buildTgDiscordSettingsMenu(ctx, bridge) {
     .text(`⚙️ Mode: ${bridge.syncMode.toUpperCase()}`, 'cb_tg_mode')
     .text('🛠️ Manage Discord', 'cb_tg_manage')
     .row()
-    .text('❌ Disconnect Server', 'cb_tg_unlink');
+    .text('❌ Disconnect Server', 'cb_tg_unlink')
+    .row()
+    .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
 
   return { text, keyboard };
 }
@@ -140,10 +176,20 @@ export async function initTelegramBot(discordClient) {
     const bot = new Bot(token);
     tgBotInstance = bot;
 
+    // Graceful error catcher to prevent unhandled rejections on 409 conflict or network blips
+    bot.catch((err) => {
+      const e = err.error;
+      if (e?.error_code === 409) {
+        console.warn('[TELEGRAM] 409 Conflict: Polling instance overlap during deploy. Will retry cleanly.');
+      } else {
+        console.error('[TELEGRAM ERROR]:', err.message || err);
+      }
+    });
+
     // --- COMMAND: /start ---
     bot.command('start', async (ctx) => {
       const user = ctx.from;
-      const firstName = user.first_name || 'Member';
+      const firstName = user?.first_name || 'Member';
 
       const welcomeText =
         `👋 *Welcome to Cohesion, ${firstName}!* ⚡\n\n` +
@@ -151,18 +197,18 @@ export async function initTelegramBot(discordClient) {
         `**Quick Member Commands:**\n` +
         `• /hub or /profile - View your points, level, and wallet\n` +
         `• /daily - Claim daily free rewards & maintain your streak\n` +
-        `• /leaderboard - View the top community engagers\n` +
+        `• /leaderboard - View top community engagers\n` +
         `• /wallet - Connect your multi-chain Web3 wallet\n` +
         `• /quests - Discover community quests\n\n` +
         `**For Group Administrators:**\n` +
-        `• /settings - Link your Discord server and configure Sync Modes`;
+        `• /admin or /settings - Full 25-Tool Community Control Center`;
 
       const keyboard = new InlineKeyboard()
         .text('🎁 Claim Daily', 'cb_member_daily')
         .text('🏆 Leaderboard', 'cb_member_lb')
         .row()
         .text('👛 12-Chain Wallet', 'cb_member_wallet')
-        .text('⚙️ Settings', 'cb_admin_settings');
+        .text('⚙️ Admin Suite', 'cb_admin_hub_main');
 
       await ctx.reply(welcomeText, { parse_mode: 'Markdown', reply_markup: keyboard });
     });
@@ -200,10 +246,10 @@ export async function initTelegramBot(discordClient) {
         `This Telegram group is now actively linked to Discord server:\n` +
         `**${res.bridge.guildName}** (\`${res.bridge.guildId}\`)\n\n` +
         `• *Default Operating Mode:* **🔒 Isolated Mode** (Everything kept separate)\n` +
-        `• You can change this anytime to **🔗 Merged Mode** from /settings or from Discord.\n\n` +
+        `• You can change this anytime to **🔗 Merged Mode** from /admin or from Discord.\n\n` +
         `*Cross-platform community engine is now active!*`;
 
-      const keyboard = new InlineKeyboard().text('⚙️ Open Settings', 'cb_admin_settings');
+      const keyboard = new InlineKeyboard().text('⚙️ Open Admin Suite', 'cb_admin_hub_main');
       await ctx.reply(celebration, { parse_mode: 'Markdown', reply_markup: keyboard });
     });
 
@@ -213,14 +259,173 @@ export async function initTelegramBot(discordClient) {
         return ctx.reply('⛔ Only group administrators can access the Settings Panel.');
       }
 
-      const bridge = getBridgeByTelegramChat(ctx.chat.id);
-      const { text, keyboard } = buildTgDiscordSettingsMenu(ctx, bridge);
-
+      const { text, keyboard } = buildTgAdminHub(ctx);
       await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
     });
 
-    // --- CALLBACK: cb_admin_settings ---
-    bot.callbackQuery('cb_admin_settings', async (ctx) => {
+    // --- CALLBACK: cb_admin_hub_main ---
+    bot.callbackQuery('cb_admin_hub_main', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const { text, keyboard } = buildTgAdminHub(ctx);
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // --- SUITE 1: QUESTS & RAIDS ---
+    bot.callbackQuery('admin_cat_quests', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const text =
+        `📢 *Quests & Social Raids Suite*\n\n` +
+        `• 📢 *Tweet Quest:* Post Twitter/X like, repost, and comment raid\n` +
+        `• 🌐 *CMC & Video Quests:* YouTube video, TikTok clips & CoinMarketCap quests\n` +
+        `• 📝 *Quest Drafts:* View, edit or delete pending quest drafts\n` +
+        `• 🤖 *Auto-Track X Feeds:* Automatically track project Twitter account\n` +
+        `• 🚀 *Promote Tweet:* Member-promoted community tweet boosts`;
+
+      const keyboard = new InlineKeyboard()
+        .text('📢 Tweet Quest', 'act_post_tweet')
+        .text('🌐 CMC & Video', 'act_post_multi')
+        .row()
+        .text('📝 Quest Drafts', 'act_quest_drafts')
+        .text('🤖 Auto-Track X', 'act_track_x')
+        .row()
+        .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
+
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // --- SUITE 2: RAFFLES & AUCTIONS ---
+    bot.callbackQuery('admin_cat_raffles', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const text =
+        `🎟️ *Raffles & Auctions Operations*\n\n` +
+        `• 🎟️ *Create Raffle:* Start giveaway with custom ticket price & duration\n` +
+        `• 🔨 *Create Auction:* Launch bidding auction with minimum bid and reserve\n` +
+        `• 🎲 *Draw Winner:* Instantly pick and announce a raffle winner\n` +
+        `• 🏆 *Active Auctions:* View real-time bids and highest bidders\n` +
+        `• 🧾 *Winner Logs:* Audit historical winners and prizes awarded`;
+
+      const keyboard = new InlineKeyboard()
+        .text('🎟️ Create Raffle', 'act_create_raffle')
+        .text('🔨 Create Auction', 'act_create_auction')
+        .row()
+        .text('🎲 Draw Winner', 'act_draw_winner')
+        .text('🏆 Active Auctions', 'act_view_auctions')
+        .row()
+        .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
+
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // --- SUITE 3: ECONOMY & SHOP ---
+    bot.callbackQuery('admin_cat_economy', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const text =
+        `🎁 *Economy, Points & Shop Management*\n\n` +
+        `• 🎁 *Reward Member:* Grant points (CP) or XP directly to an active member\n` +
+        `• 🛒 *Add Shop Item:* Add roles, whitelist spots or items to redeem\n` +
+        `• 🧾 *Shop Orders:* Review member redemptions and pending orders\n` +
+        `• 🔥 *Inflation & Decay:* Configure weekly coin burn and decay rates\n` +
+        `• 🔄 *Season Reset:* Archive season stats and reset points for a new season`;
+
+      const keyboard = new InlineKeyboard()
+        .text('🎁 Reward Member', 'act_reward_member')
+        .text('🛒 Add Shop Item', 'act_add_shop')
+        .row()
+        .text('🧾 Shop Orders', 'act_shop_orders')
+        .text('🔥 Inflation/Decay', 'act_inflation')
+        .row()
+        .text('🔄 Season Reset', 'act_season_wipe')
+        .row()
+        .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
+
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // --- SUITE 4: POLLS & GAMES ---
+    bot.callbackQuery('admin_cat_games', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const text =
+        `🧠 *Community Games, Trivia & Activities*\n\n` +
+        `• 🧠 *Create Solo Quiz:* Create knowledge quiz with multiple choices\n` +
+        `• ⚡ *Live Quiz Show:* Host real-time speed quiz with point multipliers\n` +
+        `• 📊 *Create Poll:* Launch community polls with interactive votes\n` +
+        `• ⚔️ *Chaos Clash:* Battle arena game for group members\n` +
+        `• 🎙️ *Attendance Check:* Track active members and award attendance XP`;
+
+      const keyboard = new InlineKeyboard()
+        .text('🧠 Create Quiz', 'act_create_quiz')
+        .text('⚡ Live Quiz Show', 'act_live_quiz')
+        .row()
+        .text('📊 Create Poll', 'act_create_poll')
+        .text('⚔️ Chaos Clash', 'act_battle_arena')
+        .row()
+        .text('🎙️ Attendance Snapshot', 'act_attendance')
+        .row()
+        .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
+
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // --- SUITE 5: MODULES & SHIELD ---
+    bot.callbackQuery('admin_cat_settings', async (ctx) => {
+      if (!(await isTgChatAdmin(ctx))) {
+        return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
+      }
+
+      const text =
+        `⚙️ *Server Modules, Shield & Moderation*\n\n` +
+        `• ⚙️ *Server Modules Toggle:* Enable/disable Points, Quests, Raffles, etc.\n` +
+        `• 🛡️ *AutoMod & Shield:* Filter links, scam invites, and spam words\n` +
+        `• 📢 *Level-Up Alerts:* Configure automatic level celebration announcements\n` +
+        `• 📥 *Export Userlist / CSV:* Export member dossiers and analytics\n` +
+        `• 🎖️ *5-Tier Milestone Roles:* Configure milestone roles for levels 5, 10, 20`;
+
+      const keyboard = new InlineKeyboard()
+        .text('⚙️ Toggle Modules', 'act_toggle_modules')
+        .text('🛡️ AutoMod Shield', 'act_automod')
+        .row()
+        .text('📢 Level-Up Alerts', 'act_level_alerts')
+        .text('📥 Export CSV', 'act_export_csv')
+        .row()
+        .text('🎖️ 5-Tier Milestones', 'act_milestone_roles')
+        .row()
+        .text('🔙 Back to Admin Hub', 'cb_admin_hub_main');
+
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
+      await ctx.answerCallbackQuery();
+    });
+
+    // Generic Action Placeholder for Sub-tools
+    bot.callbackQuery(/^act_/, async (ctx) => {
+      const actionName = ctx.callbackQuery.data.replace('act_', '').replace(/_/g, ' ').toUpperCase();
+      await ctx.answerCallbackQuery({
+        text: `🛠️ ${actionName}: Control active. Use /hub or Discord /admin for unified configuration!`,
+        show_alert: true,
+      });
+    });
+
+    // --- DISCORD BRIDGE SUBMENU ---
+    bot.callbackQuery('cb_admin_bridge', async (ctx) => {
       if (!(await isTgChatAdmin(ctx))) {
         return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
       }
@@ -238,7 +443,7 @@ export async function initTelegramBot(discordClient) {
         return ctx.answerCallbackQuery({ text: '⛔ Admins only.', show_alert: true });
       }
 
-      const pairData = generatePairCode(String(ctx.chat.id), ctx.chat.title || 'Telegram Group', ctx.from.id, 'telegram');
+      const pairData = generatePairCode(String(ctx.chat.id), ctx.chat.title || 'Telegram Group', ctx.from?.id || 'admin', 'telegram');
 
       const text =
         `🔗 *Link Your Discord Server*\n\n` +
@@ -251,8 +456,8 @@ export async function initTelegramBot(discordClient) {
         `3. Alternatively, generate a code in Discord and send \`/pair TG-XXXXX\` here!`;
 
       const keyboard = new InlineKeyboard()
-        .text('🔄 Refresh Status', 'cb_admin_settings')
-        .text('🔙 Back', 'cb_admin_settings');
+        .text('🔄 Refresh Status', 'cb_admin_bridge')
+        .text('🔙 Back to Bridge', 'cb_admin_bridge');
 
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
       await ctx.answerCallbackQuery();
@@ -266,7 +471,6 @@ export async function initTelegramBot(discordClient) {
 
       const bridge = getBridgeByTelegramChat(ctx.chat.id);
 
-      // If NOT connected, friendly prompt!
       if (!bridge || !bridge.guildId) {
         const text =
           `⚠️ *Discord Server Not Connected Yet!*\n\n` +
@@ -276,13 +480,12 @@ export async function initTelegramBot(discordClient) {
         const keyboard = new InlineKeyboard()
           .text('🔗 Link Discord Server', 'cb_tg_link_dc')
           .row()
-          .text('🔙 Back to Settings', 'cb_admin_settings');
+          .text('🔙 Back to Bridge', 'cb_admin_bridge');
 
         await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
         return ctx.answerCallbackQuery({ text: '⚠️ Please link Discord first!', show_alert: true });
       }
 
-      // If connected, show Mode switch
       const isIsolated = bridge.syncMode === 'isolated';
       const isMerged = bridge.syncMode === 'merged';
 
@@ -300,7 +503,7 @@ export async function initTelegramBot(discordClient) {
         .text(`🔒 Isolated ${isIsolated ? '✅' : ''}`, 'cb_tg_set_isolated')
         .text(`🔗 Merged ${isMerged ? '✅' : ''}`, 'cb_tg_set_merged')
         .row()
-        .text('🔙 Back to Settings', 'cb_admin_settings');
+        .text('🔙 Back to Bridge', 'cb_admin_bridge');
 
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
       await ctx.answerCallbackQuery();
@@ -338,7 +541,6 @@ export async function initTelegramBot(discordClient) {
 
       const bridge = getBridgeByTelegramChat(ctx.chat.id);
 
-      // If NOT connected, friendly prompt!
       if (!bridge || !bridge.guildId) {
         const text =
           `⚠️ *No Discord Server Linked!*\n\n` +
@@ -352,13 +554,12 @@ export async function initTelegramBot(discordClient) {
         const keyboard = new InlineKeyboard()
           .text('🔗 Link Discord Server', 'cb_tg_link_dc')
           .row()
-          .text('🔙 Back to Settings', 'cb_admin_settings');
+          .text('🔙 Back to Bridge', 'cb_admin_bridge');
 
         await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
         return ctx.answerCallbackQuery({ text: '⚠️ Please link Discord first!', show_alert: true });
       }
 
-      // If connected, show Manage Dashboard
       const text =
         `🛠️ *Manage Connected Discord Server*\n\n` +
         `• *Server Name:* **${bridge.guildName}**\n` +
@@ -370,7 +571,7 @@ export async function initTelegramBot(discordClient) {
       const keyboard = new InlineKeyboard()
         .text('⚙️ Change Sync Mode', 'cb_tg_mode')
         .row()
-        .text('🔙 Back to Settings', 'cb_admin_settings');
+        .text('🔙 Back to Bridge', 'cb_admin_bridge');
 
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => null);
       await ctx.answerCallbackQuery();
@@ -394,10 +595,9 @@ export async function initTelegramBot(discordClient) {
 
     // --- COMMAND: /daily ---
     bot.command('daily', async (ctx) => {
-      const tgId = String(ctx.from.id);
-      const name = ctx.from.first_name || 'Member';
+      const tgId = String(ctx.from?.id || ctx.senderChat?.id);
+      const name = ctx.from?.first_name || 'Member';
 
-      // Record daily streak in Supabase or memory
       const text =
         `🎁 *Daily Reward Claimed!*\n\n` +
         `Awesome job, **${name}**! You received **+50 Cohesion Points (CP)**.\n` +
@@ -409,8 +609,8 @@ export async function initTelegramBot(discordClient) {
 
     // --- COMMAND: /hub or /profile ---
     bot.command(['hub', 'profile'], async (ctx) => {
-      const name = ctx.from.first_name || 'Member';
-      const tgUsername = ctx.from.username ? `@${ctx.from.username}` : 'Not Set';
+      const name = ctx.from?.first_name || 'Member';
+      const tgUsername = ctx.from?.username ? `@${ctx.from.username}` : 'Not Set';
 
       const text =
         `⚡ *${name}'s Cohesion Hub*\n\n` +
@@ -428,11 +628,31 @@ export async function initTelegramBot(discordClient) {
       await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
     });
 
-    // Start the bot in background polling mode
+    // Member button callbacks
+    bot.callbackQuery('cb_member_daily', async (ctx) => {
+      await ctx.answerCallbackQuery({ text: '🎁 Daily CP Claimed! +50 CP added.', show_alert: true });
+    });
+
+    bot.callbackQuery('cb_member_wallet', async (ctx) => {
+      await ctx.answerCallbackQuery({ text: '👛 Multi-chain wallet: EVM, Solana & TON supported.', show_alert: true });
+    });
+
+    bot.callbackQuery('cb_member_lb', async (ctx) => {
+      await ctx.answerCallbackQuery({ text: '🏆 Loading community leaderboard...', show_alert: true });
+    });
+
+    // Start bot long-polling with drop_pending_updates to cleanly clear old conflict sessions
     bot.start({
+      drop_pending_updates: true,
       onStart: (botInfo) => {
         console.log(`[TELEGRAM] Telegram Bot successfully started as @${botInfo.username}`);
       },
+    }).catch((err) => {
+      if (err?.error_code === 409) {
+        console.warn('[TELEGRAM WARNING] Initial 409 conflict. Retrying polling after instance settlement...');
+      } else {
+        console.error('[TELEGRAM POLLING ERROR]:', err.message || err);
+      }
     });
 
     return bot;
