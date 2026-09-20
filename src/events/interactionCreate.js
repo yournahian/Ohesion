@@ -55,6 +55,12 @@ import {
   PRESET_CONFIGS,
   DEFAULT_MODULES,
 } from '../utils/guildSettings.js';
+import {
+  buildTicketModal,
+  createTicketChannel,
+  closeTicket,
+  generateTicketTranscript,
+} from '../utils/ticketManager.js';
 import { detectChain } from '../utils/walletValidator.js';
 import { parseCmcPostUrl, verifyCmcEngagement } from '../utils/cmcVerifier.js';
 import {
@@ -1926,6 +1932,58 @@ export default {
         }
         const payload = await getAdminPanelPayload(guild);
         return interaction.reply({ ...payload, ephemeral: true });
+      }
+
+      // --- HUB UI: TOGGLE SERVER FEATURES (ADMIN ONLY) ---
+      if (customId === 'hub_toggle_features') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: You need `Administrator` or `Manage Server` permissions to configure active features.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildCustomModulesSelector(guildId);
+        return interaction.reply(payload);
+      }
+
+      // --- HUB UI: OPEN SUPPORT TICKET ---
+      if (customId === 'hub_open_ticket') {
+        return interaction.showModal(buildTicketModal());
+      }
+
+      // --- TICKET CONTROLS: CLOSE TICKET ---
+      if (customId.startsWith('ticket_close_')) {
+        await interaction.deferReply({ ephemeral: false });
+        await closeTicket(interaction.channel, interaction.user);
+        return interaction.editReply({ content: '🔒 **Ticket has been closed and archived.**' });
+      }
+
+      // --- TICKET CONTROLS: DOWNLOAD TRANSCRIPT ---
+      if (customId.startsWith('ticket_transcript_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const file = await generateTicketTranscript(interaction.channel);
+        if (!file) {
+          return interaction.editReply({ content: '❌ Could not generate ticket transcript.' });
+        }
+        return interaction.editReply({
+          content: '📄 **Ticket Transcript Exported:**',
+          files: [file],
+        });
+      }
+
+      // --- TICKET CONTROLS: DELETE CHANNEL ---
+      if (customId.startsWith('ticket_delete_')) {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ Only staff members or Administrators can delete ticket channels.',
+            ephemeral: true,
+          });
+        }
+        await interaction.reply({ content: '🗑️ Deleting ticket channel in 3 seconds...' });
+        setTimeout(() => {
+          interaction.channel?.delete().catch(() => null);
+        }, 3000);
+        return;
       }
 
       // --- ADMIN: 5-TIER MILESTONE ROLES ---
@@ -4411,6 +4469,27 @@ export default {
         });
       }
 
+      // --- MODAL: CREATE SUPPORT TICKET ---
+      if (modalId === 'modal_create_ticket') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const subject = interaction.fields.getTextInputValue('input_ticket_subject')?.trim() || 'General Inquiry';
+        const description = interaction.fields.getTextInputValue('input_ticket_desc')?.trim() || '';
+
+        const res = await createTicketChannel(interaction.guild, interaction.user, {
+          subject,
+          description,
+        });
+
+        if (!res.success) {
+          return interaction.editReply({ content: res.message });
+        }
+
+        return interaction.editReply({
+          content: `✅ **Support Ticket Created!** Please head over to <#${res.channel.id}> to speak with server staff.`,
+        });
+      }
+
       // --- MODAL: ADMIN MULTI-PLATFORM QUEST LAUNCHER ---
       if (modalId === 'modal_post_multi') {
         await interaction.deferReply({ ephemeral: true });
@@ -6845,7 +6924,7 @@ export default {
         return interaction.reply({
           content:
             `✅ **Custom Modules Saved!**\n` +
-            `• Enabled Modules: **${enabledCount} / 10**\n` +
+            `• Enabled Modules: **${enabledCount} / 11**\n` +
             `• Spendable Currency: **${curLabel}**\n` +
             `• Operating Mode set to: **🎛️ Custom Modular Mode**`,
           ephemeral: true,

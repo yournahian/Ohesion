@@ -36,6 +36,7 @@ export const DEFAULT_MODULES = [
   'attendance',
   'trivia',
   'battle',
+  'tickets',
 ];
 
 export const PRESET_CONFIGS = {
@@ -177,6 +178,7 @@ export function buildServerModePayload(guildId, guildName) {
     { key: 'attendance', label: '🎙️ Attendance & VC XP' },
     { key: 'trivia', label: '🧠 Trivia & Quizzes' },
     { key: 'battle', label: '⚔️ Battle Engine' },
+    { key: 'tickets', label: '🎫 Support Tickets' },
   ];
 
   const statusText = moduleList
@@ -264,6 +266,7 @@ export function buildCustomModulesSelector(guildId) {
     { label: 'Attendance & VC XP', value: 'attendance', description: 'Voice channel snapshots and transcription' },
     { label: 'Trivia & Quizzes', value: 'trivia', description: 'Solo quizzes and live Kahoot-style trivia' },
     { label: 'Battle Engine', value: 'battle', description: 'Interactive text/turn-based battle arena' },
+    { label: 'Support Tickets', value: 'tickets', description: 'Private 1-on-1 member support channels with transcripts' },
   ];
 
   const select = new StringSelectMenuBuilder()

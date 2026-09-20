@@ -64,6 +64,7 @@ export async function buildHubPayload(guild, user) {
   const auctionsEnabled = isModuleEnabled(guild.id, 'auctions');
   const questsEnabled = isModuleEnabled(guild.id, 'quests');
   const referralsEnabled = isModuleEnabled(guild.id, 'referrals');
+  const ticketsEnabled = isModuleEnabled(guild.id, 'tickets');
 
   // Math progression
   const currentLevelXp = getRequiredXpForLevel(level);
@@ -250,8 +251,25 @@ export async function buildHubPayload(guild, user) {
         .setStyle(ButtonStyle.Primary)
     );
   }
+  if (ticketsEnabled) {
+    row3Components.push(
+      new ButtonBuilder()
+        .setCustomId('hub_open_ticket')
+        .setLabel('Support Ticket')
+        .setEmoji('🎫')
+        .setStyle(ButtonStyle.Success)
+    );
+  }
 
-  // 100% UI-driven Admin Entry: Zero slash commands needed
+  // 100% UI-driven Feature Control & Admin Entries
+  row3Components.push(
+    new ButtonBuilder()
+      .setCustomId('hub_toggle_features')
+      .setLabel('Feature Controls')
+      .setEmoji('⚙️')
+      .setStyle(ButtonStyle.Primary)
+  );
+
   row3Components.push(
     new ButtonBuilder()
       .setCustomId('hub_open_admin')
@@ -262,7 +280,9 @@ export async function buildHubPayload(guild, user) {
 
   const components = [actionRow1, actionRow2];
   if (row3Components.length > 0) {
-    components.push(new ActionRowBuilder().addComponents(row3Components));
+    for (let i = 0; i < row3Components.length; i += 5) {
+      components.push(new ActionRowBuilder().addComponents(row3Components.slice(i, i + 5)));
+    }
   }
 
   return {
