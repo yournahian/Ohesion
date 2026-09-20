@@ -6,6 +6,11 @@ import {
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { getRequiredXpForLevel } from './levelCalculator.js';
+import {
+  getGuildSettings,
+  getCurrencyType,
+  isModuleEnabled,
+} from './guildSettings.js';
 
 /**
  * Builds the Cohesion Hub interactive embed and action rows for a user.
@@ -88,12 +93,18 @@ export async function buildHubPayload(guild, user) {
     modeDesc = `Welcome to **Cohesion**! Earn XP through chat and voice, unlock exclusive tier roles, and climb the community leaderboards.`;
   }
 
+  const iconURL = typeof user.displayAvatarURL === 'function'
+    ? user.displayAvatarURL({ dynamic: true })
+    : null;
+
+  const authorObj = {
+    name: `${user.displayName || user.username || 'Member'}'s Cohesion Hub`,
+  };
+  if (iconURL) authorObj.iconURL = iconURL;
+
   const hubEmbed = new EmbedBuilder()
     .setColor(0x5865f2) // Cohesion Blurple
-    .setAuthor({
-      name: `${user.displayName || user.username}'s Cohesion Hub`,
-      iconURL: user.displayAvatarURL({ dynamic: true }),
-    })
+    .setAuthor(authorObj)
     .setTitle(`⚡ ${guild.name} • Community Ecosystem`)
     .setDescription(modeDesc);
 
@@ -126,9 +137,12 @@ export async function buildHubPayload(guild, user) {
     { name: '👛 Multi-Chain Wallet', value: `**${walletStatus}**`, inline: true }
   );
 
+  const thumbURL = (typeof guild.iconURL === 'function' ? guild.iconURL({ dynamic: true }) : null) || iconURL;
+  if (thumbURL) {
+    hubEmbed.setThumbnail(thumbURL);
+  }
   hubEmbed
-    .setThumbnail(guild.iconURL({ dynamic: true }) || user.displayAvatarURL({ dynamic: true }))
-    .setFooter({ text: `Cohesion • ${settings.server_mode.toUpperCase().replace(/_/g, ' ')}` })
+    .setFooter({ text: `Cohesion • ${(settings.server_mode || 'full_economy').toUpperCase().replace(/_/g, ' ')}` })
     .setTimestamp();
 
   // Row 1: Core Action Buttons
