@@ -140,12 +140,17 @@ export async function getAdminPanelPayload(guild) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // Row 4: Community Activities & Voice
+  // Row 4: Community Activities, Games & Quizzes
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('admin_create_quiz')
       .setLabel('Create Quiz')
       .setEmoji('🧠')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('admin_create_live_quiz')
+      .setLabel('Live Quiz Show')
+      .setEmoji('⚡')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('admin_create_poll')
@@ -161,15 +166,10 @@ export async function getAdminPanelPayload(guild) {
       .setCustomId('admin_record_vc')
       .setLabel('Voice Studio Notes')
       .setEmoji('🎙️')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('admin_season_wipe')
-      .setLabel('Season Reset')
-      .setEmoji('🔄')
-      .setStyle(ButtonStyle.Danger)
+      .setStyle(ButtonStyle.Primary)
   );
 
-  // Row 5: Server Architecture, Modes, Data Export & AutoMod Shield
+  // Row 5: Server Architecture, Modes, Data Export, AutoMod & Season Reset
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('admin_server_mode')
@@ -185,7 +185,12 @@ export async function getAdminPanelPayload(guild) {
       .setCustomId('admin_automod')
       .setLabel('AutoMod & Shield')
       .setEmoji('🛡️')
-      .setStyle(ButtonStyle.Success)
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('admin_season_wipe')
+      .setLabel('Season Reset')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Danger)
   );
 
   return {
