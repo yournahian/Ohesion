@@ -346,54 +346,48 @@ function processSnippetRequirements(customText, guild, tweetUsername) {
   for (const rawLine of lines) {
     let line = rawLine;
 
-    // 1. Explicit Twitter/X URL conversion: e.g. https://x.com/username -> [@username](https://x.com/username)
+    // 1. Explicit full Twitter/X URLs: https://x.com/username -> [@username](https://x.com/username)
     line = line.replace(/https?:\/\/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,25})(?:\/[^\s)]*)?/gi, '[@$1](https://x.com/$1)');
 
-    // 2. Explicit prefix conversion:
-    // x:@handle or twitter:@handle -> [@handle](https://x.com/handle)
+    // 2. Explicit prefix conversion: x:@handle or twitter:@handle -> [@handle](https://x.com/handle)
     line = line.replace(/\b(?:x|twitter):@?([a-zA-Z0-9_]{1,25})\b/gi, '[@$1](https://x.com/$1)');
 
-    // role:@roleName or discord:@roleName -> resolve to role mention
-    line = line.replace(/\b(?:role|discord):@?([a-zA-Z0-9_\- ]+?)(?=[,.:;!?)]|$)/gi, (match, roleQuery) => {
-      const cleanQ = roleQuery.trim().toLowerCase();
-      const r = roles.find((role) => role.name.toLowerCase() === cleanQ || role.id === cleanQ);
-      return r ? `<@&${r.id}>` : match;
-    });
-
-    // 3. Smart contextual X handle detection:
-    // When preceded by action verbs (follow, sub, subscribe, check, visit, repost, rt, support)
-    // ALWAYS treat as X account handle, even if a Discord role with the same name exists!
-    line = line.replace(/\b(follow(?:ing)?|sub(?:scribe)?|check(?:\s+out)?|visit|repost|rt|support)\s+@([a-zA-Z0-9_]{1,25})\b/gi, '$1 [@$2](https://x.com/$2)');
-
-    // Support "follow the account" or "follow account" or "follow x"
+    // 3. Support "follow the account" or "follow account" or "follow x"
     line = line.replace(/\bfollow(?:\s+the)?\s+(?:account|x(?:\s+acc(?:ount)?)?)\b/gi, `follow [@${tweetUsername}](https://x.com/${tweetUsername})`);
 
-    // 4. Resolve Discord roles for remaining @mentions:
+    // 4. Resolve Discord roles for @RoleName (case-insensitive and word-boundary aware):
     for (const r of sortedRoles) {
+      if (!r.name || r.name === '@everyone' || r.name === '@here') continue;
       const escapedRole = r.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // Match @RoleName only if NOT already part of a markdown link or Discord mention
-      const roleRegex = new RegExp(`(?<!\\[|/|&|<)@${escapedRole}(?=[\\s,.:;!?)]|$)`, 'gi');
-      if (roleRegex.test(line)) {
-        line = line.replace(roleRegex, `<@&${r.id}>`);
-      }
+      const roleRegex = new RegExp(`(?<!\\[|<|/|&)@${escapedRole}\\b`, 'gi');
+      line = line.replace(roleRegex, `<@&${r.id}>`);
     }
 
-    // 5. Any remaining @handle (that isn't a role, link, or mention)
-    line = line.replace(/(^|[^\w<@&/])@([a-zA-Z0-9_]{1,25})(?=[^\w]|$)/g, (match, prefix, handle) => {
+    // 5. Convert @handle into clean X profile link ONLY if NOT already formatted as a link or Discord mention
+    // Uses lookbehind to strictly prevent double-wrapping `[[@handle](url)](url)`
+    line = line.replace(/(?<!\[|<|\/|&|@)@([a-zA-Z0-9_]{1,25})\b(?![^\[]*\])/g, (match, handle) => {
       const lowerHandle = handle.toLowerCase();
       if (lowerHandle === 'everyone' || lowerHandle === 'here') {
-        return `${prefix}@${handle}`;
+        return `@${handle}`;
       }
       if (lowerHandle === 'account' || lowerHandle === 'x') {
-        return `${prefix}[@${tweetUsername}](https://x.com/${tweetUsername})`;
+        return `[@${tweetUsername}](https://x.com/${tweetUsername})`;
       }
-      // Check if it matches a guild role
-      const matchedRole = roles.find((r) => r.name.toLowerCase() === lowerHandle);
+
+      // Check if it matches a guild role by exact or normalized name (ignoring special chars)
+      const matchedRole = roles.find((r) => {
+        const rLower = r.name.toLowerCase();
+        return (
+          rLower === lowerHandle ||
+          rLower.replace(/[^a-z0-9]/g, '') === lowerHandle.replace(/[^a-z0-9]/g, '')
+        );
+      });
       if (matchedRole) {
-        return `${prefix}<@&${matchedRole.id}>`;
+        return `<@&${matchedRole.id}>`;
       }
-      // Otherwise, default to X profile link
-      return `${prefix}[@${handle}](https://x.com/${handle})`;
+
+      // Default to X profile link
+      return `[@${handle}](https://x.com/${handle})`;
     });
 
     // 6. Check if this line is purely a role/tag mention (e.g. "@Socials" or "<@&12345>" or "@everyone")
@@ -1015,7 +1009,6 @@ export default {
         const ctaInput = new TextInputBuilder()
           .setCustomId('input_call_to_action')
           .setLabel('Headline / Call to Action (Optional)')
-          .setValue('Engage to collect your points')
           .setPlaceholder('e.g. Engage to collect your points')
           .setStyle(TextInputStyle.Short)
           .setMaxLength(60)
@@ -3813,7 +3806,7 @@ export default {
 
         const customText = interaction.fields.getTextInputValue('input_custom_text') || '';
 
-        let ctaText = 'Engage to collect your points';
+        let ctaText = '';
         try {
           const rawCta = interaction.fields.getTextInputValue('input_call_to_action');
           if (rawCta && rawCta.trim().length > 0) {
@@ -4002,10 +3995,11 @@ export default {
         const processedSnippet = processSnippetRequirements(customText, guild, username);
 
         // Build clean message content
-        let messageContent =
-          `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-          `**${ctaText}**\n` +
-          `Expires <t:${expireTimestampSec}:R>`;
+        let messageContent = `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n`;
+        if (ctaText) {
+          messageContent += `**${ctaText}**\n`;
+        }
+        messageContent += `Expires <t:${expireTimestampSec}:R>`;
 
         if (processedSnippet.snippetBody) {
           messageContent += `\n\n${processedSnippet.snippetBody}`;
