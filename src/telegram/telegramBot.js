@@ -15,16 +15,46 @@ let discordClientRef = null;
 
 /**
  * Checks if a user is an administrator in a Telegram group.
+ * Handles normal users, group owners, anonymous admins, and channel senders.
  * @param {import('grammy').Context} ctx 
  */
 async function isTgChatAdmin(ctx) {
+  if (!ctx.chat) return false;
   if (ctx.chat.type === 'private') return true;
-  try {
-    const member = await ctx.getChatMember(ctx.from.id);
-    return ['creator', 'administrator'].includes(member.status);
-  } catch (_) {
-    return false;
+
+  // 1. Anonymous Admin / Group Owner speaking as the Group itself
+  // (In Telegram, when 'Remain Anonymous' is enabled, ctx.senderChat is the group or ctx.from is GroupAnonymousBot)
+  if (ctx.senderChat && ctx.senderChat.id === ctx.chat.id) {
+    return true;
   }
+  if (ctx.from?.username === 'GroupAnonymousBot' || ctx.from?.id === 1087968824) {
+    return true;
+  }
+
+  // 2. Basic groups where all members are admins
+  if (ctx.chat.all_members_are_administrators) {
+    return true;
+  }
+
+  // 3. Regular member check via getChatMember
+  if (ctx.from?.id) {
+    try {
+      const member = await ctx.getChatMember(ctx.from.id);
+      if (['creator', 'administrator'].includes(member.status)) {
+        return true;
+      }
+    } catch (_) {}
+
+    // Fallback: Check administrators list
+    try {
+      const admins = await ctx.getChatAdministrators();
+      if (admins.some((a) => a.user.id === ctx.from.id)) {
+        return true;
+      }
+    } catch (_) {}
+  }
+
+  return false;
 }
 
 /**
@@ -157,8 +187,9 @@ export async function initTelegramBot(discordClient) {
         );
       }
 
-      const chatTitle = ctx.chat.title || `${ctx.from.first_name}'s Group`;
-      const res = await verifyAndPair(code, ctx.chat.id, chatTitle, ctx.from.id);
+      const chatTitle = ctx.chat.title || ctx.senderChat?.title || `${ctx.from?.first_name || 'Community'}'s Group`;
+      const senderId = ctx.from?.id || ctx.senderChat?.id || 'admin';
+      const res = await verifyAndPair(code, ctx.chat.id, chatTitle, senderId);
 
       if (!res.success) {
         return ctx.reply(res.message);
