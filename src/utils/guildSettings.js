@@ -18,6 +18,8 @@ import {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -77,6 +79,7 @@ export function getGuildSettings(guildId) {
     server_mode: 'full_economy',
     currency_type: 'points',
     enabled_modules: [...DEFAULT_MODULES],
+    level_up_channel_id: null,
   };
   cache.set(guildId, defaultSetting);
   return defaultSetting;
@@ -289,4 +292,82 @@ export function buildCustomModulesSelector(guildId) {
     .setFooter({ text: 'Choose any combination • Changes apply instantly' });
 
   return { embeds: [embed], components: [new ActionRowBuilder().addComponents(select)], ephemeral: true };
+}
+
+/**
+ * Sets the designated channel for Level-Up announcements.
+ * @param {string} guildId 
+ * @param {string | null} channelId 'disabled', 'same', or specific channelId
+ */
+export function setLevelUpChannel(guildId, channelId) {
+  const current = getGuildSettings(guildId);
+  current.level_up_channel_id = channelId;
+  cache.set(guildId, current);
+  return current;
+}
+
+/**
+ * Builds the interactive payload to configure Level-Up announcement routing.
+ * @param {string} guildId 
+ * @param {import('discord.js').Guild} guild 
+ */
+export function buildLevelChannelPayload(guildId, guild) {
+  const settings = getGuildSettings(guildId);
+  const currentChannelId = settings.level_up_channel_id;
+
+  let currentTargetText = '🔄 **Same Channel** (Where member sent message)';
+  if (currentChannelId === 'disabled') {
+    currentTargetText = '🚫 **Disabled** (No Level-Up announcements sent)';
+  } else if (currentChannelId && currentChannelId !== 'same') {
+    currentTargetText = `📢 **Specific Channel:** <#${currentChannelId}>`;
+  } else {
+    // Check auto-detected channel
+    const autoCh = guild?.channels?.cache?.find(
+      (c) => c.isTextBased() && /level[-_]?up|levels|bot[-_]?log/i.test(c.name)
+    );
+    if (autoCh) {
+      currentTargetText = `🤖 **Auto-Detected Channel:** <#${autoCh.id}> (\`#${autoCh.name}\`)`;
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('📢 Level-Up Announcement Channel Settings')
+    .setDescription(
+      `Configure where the **🎉 Level Up!** congratulations cards are posted when members reach a new level.\n\n` +
+      `**Current Target:**\n${currentTargetText}\n\n` +
+      `**Options:**\n` +
+      `1️⃣ **Select Channel Below:** Choose a dedicated channel (e.g. \`#level-up\` or \`#bot-commands\`).\n` +
+      `2️⃣ **Same Channel:** Send embed directly in the chat channel where member was talking.\n` +
+      `3️⃣ **Disable Announcements:** Turn off Level-Up announcements completely.`
+    )
+    .setFooter({ text: 'Cohesion Gamification Settings • Instant Sync' })
+    .setTimestamp();
+
+  const channelSelect = new ChannelSelectMenuBuilder()
+    .setCustomId('select_level_up_channel')
+    .setPlaceholder('Choose a dedicated channel for Level-Up cards...')
+    .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+
+  const row1 = new ActionRowBuilder().addComponents(channelSelect);
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('btn_level_channel_same')
+      .setLabel('Send in Same Channel')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_level_channel_disable')
+      .setLabel('Disable Announcements')
+      .setEmoji('🚫')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('admin_back_main')
+      .setLabel('Back to Control Center')
+      .setEmoji('🔙')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  return { embeds: [embed], components: [row1, row2], ephemeral: true };
 }

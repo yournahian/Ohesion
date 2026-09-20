@@ -169,12 +169,17 @@ export async function getAdminPanelPayload(guild) {
       .setStyle(ButtonStyle.Primary)
   );
 
-  // Row 5: Server Architecture, Modes, Data Export, AutoMod & Season Reset
+  // Row 5: Server Architecture, Modes, Data Export, AutoMod & Level-Up Channel
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('admin_server_mode')
       .setLabel('Server Mode & Modules')
       .setEmoji('⚙️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('admin_level_channel')
+      .setLabel('Level-Up Channel')
+      .setEmoji('📢')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('admin_export_users')

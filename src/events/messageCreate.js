@@ -4,6 +4,7 @@ import { isUserOnMessageCooldown } from '../utils/cooldowns.js';
 import { getLevelFromXp, POINTS_PER_LEVEL } from '../utils/levelCalculator.js';
 import { trackMessage } from '../utils/messageTracker.js';
 import { inspectMessage } from '../utils/autoModEngine.js';
+import { getGuildSettings } from '../utils/guildSettings.js';
 
 export default {
   name: Events.MessageCreate,
@@ -133,7 +134,30 @@ export default {
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .setFooter({ text: 'Cohesion Gamification System' });
 
-        await message.channel.send({ embeds: [levelUpEmbed] }).catch(() => null);
+        // 📢 Route Level Up announcement to designated channel or smart fallback
+        const settings = getGuildSettings(guildId);
+        const configuredChannelId = settings.level_up_channel_id;
+
+        if (configuredChannelId !== 'disabled') {
+          let targetChannel = null;
+
+          if (configuredChannelId && configuredChannelId !== 'same') {
+            targetChannel = message.guild.channels.cache.get(configuredChannelId);
+          }
+
+          // Auto-detect dedicated channel if not explicitly forced to 'same'
+          if (!targetChannel && configuredChannelId !== 'same') {
+            targetChannel = message.guild.channels.cache.find(
+              (c) =>
+                c.isTextBased() &&
+                c.permissionsFor(message.guild.members.me)?.has('SendMessages') &&
+                /level[-_]?up|levels|bot[-_]?channel|bot[-_]?log/i.test(c.name)
+            );
+          }
+
+          const sendChannel = targetChannel || message.channel;
+          await sendChannel.send({ embeds: [levelUpEmbed] }).catch(() => null);
+        }
       } else {
         // Just update XP & message count
         await supabase

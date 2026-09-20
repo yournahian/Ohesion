@@ -50,6 +50,8 @@ import {
   getCurrencyType,
   buildServerModePayload,
   buildCustomModulesSelector,
+  setLevelUpChannel,
+  buildLevelChannelPayload,
   PRESET_CONFIGS,
   DEFAULT_MODULES,
 } from '../utils/guildSettings.js';
@@ -2545,6 +2547,45 @@ export default {
           content: `✅ **Single Member CSV Ready!** Activity data for <@${targetUserId}>:`,
           files: [attachment],
         });
+      }
+
+      // --- ADMIN: LEVEL-UP CHANNEL CONFIGURATION ---
+      if (customId === 'admin_level_channel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure announcement channels.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildLevelChannelPayload(guildId, interaction.guild);
+        return interaction.reply(payload);
+      }
+
+      if (customId === 'btn_level_channel_same') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ You need `Administrator` permissions.', ephemeral: true });
+        }
+        setLevelUpChannel(guildId, 'same');
+        const payload = buildLevelChannelPayload(guildId, interaction.guild);
+        return interaction.update(payload);
+      }
+
+      if (customId === 'btn_level_channel_disable') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ You need `Administrator` permissions.', ephemeral: true });
+        }
+        setLevelUpChannel(guildId, 'disabled');
+        const payload = buildLevelChannelPayload(guildId, interaction.guild);
+        return interaction.update(payload);
+      }
+
+      if (customId === 'admin_back_main') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ You need `Administrator` permissions.', ephemeral: true });
+        }
+        const payload = await getAdminPanelPayload(interaction.guild);
+        return interaction.update(payload);
       }
 
       // --- ADMIN: AUTOMOD & SECURITY SHIELD DASHBOARD ---
@@ -6908,6 +6949,16 @@ export default {
 
         const modal = buildChannelAuditModal(targetChannelId, channel.name);
         return interaction.showModal(modal);
+      }
+
+      if (selectId === 'select_level_up_channel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ You need `Administrator` or `Manage Server` permissions.', ephemeral: true });
+        }
+        const selectedChannelId = interaction.values[0];
+        setLevelUpChannel(guildId, selectedChannelId);
+        const payload = buildLevelChannelPayload(guildId, interaction.guild);
+        return interaction.update(payload);
       }
     }
 
