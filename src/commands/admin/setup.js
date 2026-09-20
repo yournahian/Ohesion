@@ -6,11 +6,12 @@ import {
 } from 'discord.js';
 import { supabase } from '../../lib/supabase.js';
 import { buildHubPayload } from '../../utils/hubView.js';
+import { setLevelUpChannel } from '../../utils/guildSettings.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('One-click setup for Cohesion: creates category, #cohesion-hub, #cohesion-feed, and #cohesion-logs.')
+    .setDescription('One-click setup for Cohesion: creates category, hub, quest feed, levels, and activity logs.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
@@ -101,7 +102,36 @@ export default {
         });
       }
 
-      // 4. Check or create #cohesion-logs channel
+      // 4. Check or create #cohesion-levels channel
+      let levelChannel = guild.channels.cache.find(
+        (c) => (c.name === 'cohesion-levels' || c.name === 'level-up' || c.name === 'levels') && c.parentId === category.id
+      );
+
+      if (!levelChannel) {
+        levelChannel = await guild.channels.create({
+          name: 'cohesion-levels',
+          type: ChannelType.GuildText,
+          parent: category.id,
+          topic: 'Official Level-Up celebrations, tier role unlocks, and XP rank achievements.',
+        });
+
+        const welcomeEmbed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle('🎉 Cohesion Level-Up & Achievements Feed')
+          .setDescription(
+            'Welcome to the dedicated Level-Up feed!\n\n' +
+            'Chat actively in community channels to earn XP, reach new levels, and unlock exclusive role tiers.\n' +
+            'All level achievements and reward drops will be celebrated right here!'
+          )
+          .setFooter({ text: 'Cohesion Gamification System' });
+
+        await levelChannel.send({ embeds: [welcomeEmbed] }).catch(() => null);
+      }
+
+      // Automatically configure this channel as the designated Level-Up channel!
+      setLevelUpChannel(guild.id, levelChannel.id);
+
+      // 5. Check or create #cohesion-logs channel
       let logChannel = guild.channels.cache.find(
         (c) => (c.name === 'cohesion-logs' || c.name === 'activity-logs' || c.name === 'engage-logs') && c.parentId === category.id
       );
@@ -132,9 +162,11 @@ export default {
           `📁 **Category:** \`🌀 COHESION ECOSYSTEM\`\n` +
           `⚡ **Community Hub:** <#${hubChannel.id}>\n` +
           `📢 **Quest Feed:** <#${questChannel.id}>\n` +
+          `🎉 **Level-Up Feed:** <#${levelChannel.id}>\n` +
           `📜 **Activity Logs:** <#${logChannel.id}>\n\n` +
           `**What to do next:**\n` +
-          `• Run \`/admin\` to open the visual Control Center.\n` +
+          `• All Level-Up cards will now automatically arrive in <#${levelChannel.id}>!\n` +
+          `• Run \`/admin\` to customize settings, quests, and economy.\n` +
           `• Members can use the 1-click buttons in <#${hubChannel.id}> or run \`/hub\`!`
         )
         .setFooter({ text: 'Cohesion Automated Setup' });
