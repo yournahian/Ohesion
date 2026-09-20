@@ -2,11 +2,19 @@
  * In-memory & cached Quest Presets / Drafts storage for Cohesion.
  * Allows admins to quickly apply complex quest filters with 1 click.
  */
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+} from 'discord.js';
 
 const guildDrafts = new Map();
 
 // Built-in default presets
-const DEFAULT_PRESETS = [
+export const DEFAULT_PRESETS = [
   {
     name: 'standard_raid',
     description: 'Standard raid: 50 CP, 24h duration, Like + Retweet + Reply.',
@@ -84,4 +92,81 @@ export function deleteGuildDraft(guildId, draftName) {
   const filtered = list.filter((d) => d.name.toLowerCase() !== draftName.toLowerCase());
   guildDrafts.set(guildId, filtered);
   return true;
+}
+
+/**
+ * Builds the interactive 100% UI Quest Drafts & Presets Dashboard.
+ * Includes a Select Menu to 1-click launch any draft, plus buttons to create/manage presets.
+ * @param {string} guildId 
+ */
+export function buildQuestDraftsDashboard(guildId) {
+  const drafts = getGuildDrafts(guildId);
+  const customDrafts = guildDrafts.get(guildId) || [];
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('📝 Cohesion Quest Presets & Drafts Engine')
+    .setDescription(
+      `Save and launch recurring quest formats in **1-click** without repeatedly typing points, buttons, and duration filters.\n\n` +
+      `**Active Drafts & Presets:**\n\n` +
+      drafts
+        .map(
+          (d, i) =>
+            `**${i + 1}. \`${d.name}\`** ${DEFAULT_PRESETS.some((dp) => dp.name === d.name) ? '*(Built-in)*' : '*(Custom)*'}\n` +
+            `↳ ${d.description}\n` +
+            `↳ Points: **${d.points} CP** • Duration: **${d.duration}** • Buttons: \`${d.buttons || 'like, rt'}\``
+        )
+        .join('\n\n')
+    )
+    .setFooter({ text: 'Select a draft below to quick-launch, or create a new custom preset' })
+    .setTimestamp();
+
+  // Select menu to launch a quest using a draft
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId('select_launch_draft')
+    .setPlaceholder('🚀 Select a Draft to Quick-Launch...')
+    .addOptions(
+      drafts.slice(0, 25).map((d) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(d.name)
+          .setValue(d.name)
+          .setDescription(`${d.points} CP • ${d.duration} • ${(d.description || '').slice(0, 50)}`)
+          .setEmoji('🚀')
+      )
+    );
+
+  const row1 = new ActionRowBuilder().addComponents(selectMenu);
+
+  const actionButtons = [
+    new ButtonBuilder()
+      .setCustomId('btn_create_quest_draft')
+      .setLabel('Create Custom Draft')
+      .setEmoji('➕')
+      .setStyle(ButtonStyle.Success),
+  ];
+
+  if (customDrafts.length > 0) {
+    actionButtons.push(
+      new ButtonBuilder()
+        .setCustomId('btn_delete_quest_draft')
+        .setLabel('Delete Custom Draft')
+        .setEmoji('🗑️')
+        .setStyle(ButtonStyle.Danger)
+    );
+  }
+
+  actionButtons.push(
+    new ButtonBuilder()
+      .setCustomId('admin_back_to_main')
+      .setLabel('Back to Admin Console')
+      .setEmoji('⬅️')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(actionButtons);
+
+  return {
+    embeds: [embed],
+    components: [row1, row2],
+  };
 }

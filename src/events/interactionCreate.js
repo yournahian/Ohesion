@@ -53,7 +53,12 @@ import {
 } from '../utils/guildSettings.js';
 import { detectChain } from '../utils/walletValidator.js';
 import { parseCmcPostUrl, verifyCmcEngagement } from '../utils/cmcVerifier.js';
-import { getGuildDrafts, saveGuildDraft } from '../utils/questDrafts.js';
+import {
+  getGuildDrafts,
+  saveGuildDraft,
+  deleteGuildDraft,
+  buildQuestDraftsDashboard,
+} from '../utils/questDrafts.js';
 import { setGuildInflation, getGuildInflation } from '../workers/inflationWorker.js';
 import { buildInflationDashboard } from '../utils/inflationView.js';
 import { getAdminPanelPayload } from '../commands/admin/admin.js';
@@ -1686,28 +1691,81 @@ export default {
         return interaction.showModal(modal);
       }
 
-      // --- ADMIN: QUEST DRAFTS / PRESETS ---
+      // --- ADMIN: QUEST DRAFTS / PRESETS DASHBOARD ---
       if (customId === 'admin_quest_drafts') {
         await interaction.deferReply({ ephemeral: true });
+        const payload = buildQuestDraftsDashboard(guildId);
+        return interaction.editReply(payload);
+      }
 
-        const drafts = getGuildDrafts(guildId);
-        const embed = new EmbedBuilder()
-          .setColor(0x5865f2)
-          .setTitle('📝 Cohesion Quest Presets & Drafts')
-          .setDescription(
-            `Use saved presets to launch quests in 1-click without retyping complex filters:\n\n` +
-            drafts
-              .map(
-                (d, i) =>
-                  `**${i + 1}. \`${d.name}\`**\n` +
-                  `↳ ${d.description}\n` +
-                  `↳ Points: **${d.points} CP** • Duration: **${d.duration}** • Verified Only: **${d.verifiedOnly ? 'Yes' : 'No'}**`
-              )
-              .join('\n\n')
-          )
-          .setFooter({ text: 'Preset system eliminates manual form repetition' });
+      // --- ADMIN: CREATE CUSTOM QUEST DRAFT MODAL ---
+      if (customId === 'btn_create_quest_draft') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_create_quest_draft')
+          .setTitle('➕ Create Custom Quest Draft');
 
-        return interaction.editReply({ embeds: [embed] });
+        const nameInput = new TextInputBuilder()
+          .setCustomId('input_draft_name')
+          .setLabel('Preset/Draft Name (e.g. weekend_special)')
+          .setPlaceholder('e.g. flash_raid, weekend_special')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const pdInput = new TextInputBuilder()
+          .setCustomId('input_draft_points_duration')
+          .setLabel('Points (CP), Duration (e.g. 75, 6h)')
+          .setValue('75, 6h')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const btnsInput = new TextInputBuilder()
+          .setCustomId('input_draft_buttons')
+          .setLabel('Buttons: like, rt, comment')
+          .setValue('like, rt, comment')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const descInput = new TextInputBuilder()
+          .setCustomId('input_draft_desc')
+          .setLabel('Short Description')
+          .setPlaceholder('e.g. Fast 6-hour community raid with 75 CP')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const keywordInput = new TextInputBuilder()
+          .setCustomId('input_draft_keyword')
+          .setLabel('Required Keyword or Tag (Optional)')
+          .setPlaceholder('e.g. #Cohesion or #Rialo')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(nameInput),
+          new ActionRowBuilder().addComponents(pdInput),
+          new ActionRowBuilder().addComponents(btnsInput),
+          new ActionRowBuilder().addComponents(descInput),
+          new ActionRowBuilder().addComponents(keywordInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: DELETE CUSTOM QUEST DRAFT ---
+      if (customId === 'btn_delete_quest_draft') {
+        const drafts = getGuildDrafts(guildId).filter((d) => !DEFAULT_PRESETS.some((dp) => dp.name === d.name));
+        if (drafts.length === 0) {
+          return interaction.reply({
+            content: 'ℹ️ No custom drafts found to delete (built-in presets cannot be removed).',
+            ephemeral: true,
+          });
+        }
+        const lastDraft = drafts[drafts.length - 1];
+        deleteGuildDraft(guildId, lastDraft.name);
+        const payload = buildQuestDraftsDashboard(guildId);
+        return interaction.update({
+          content: `🗑️ Deleted custom draft \`${lastDraft.name}\`.`,
+          ...payload,
+        });
       }
 
       // --- ADMIN: AUTO-TRACK TWITTER HANDLES ---
@@ -4433,6 +4491,142 @@ export default {
         });
       }
 
+      // --- MODAL: CREATE CUSTOM QUEST DRAFT ---
+      if (modalId === 'modal_create_quest_draft') {
+        await interaction.deferReply({ ephemeral: true });
+        const name = interaction.fields.getTextInputValue('input_draft_name').trim().toLowerCase().replace(/\s+/g, '_');
+        const pd = interaction.fields.getTextInputValue('input_draft_points_duration').trim();
+        const buttons = interaction.fields.getTextInputValue('input_draft_buttons').trim();
+        const desc = interaction.fields.getTextInputValue('input_draft_desc').trim();
+        const keyword = interaction.fields.getTextInputValue('input_draft_keyword')?.trim() || '';
+
+        const parts = pd.split(/[,|\s]+/).filter(Boolean);
+        const points = parseInt(parts[0], 10) || 50;
+        const duration = parts[1] || '24h';
+
+        const newDraft = {
+          name,
+          description: desc,
+          points,
+          duration,
+          buttons,
+          leadEngagersBonus: Math.round(points * 0.25),
+          verifiedOnly: false,
+          requireFollow: false,
+          minCharacters: 5,
+          keyword,
+        };
+
+        saveGuildDraft(guildId, newDraft);
+        const payload = buildQuestDraftsDashboard(guildId);
+        return interaction.editReply({
+          content: `✅ **Custom Quest Draft \`${name}\` Created & Saved!**`,
+          ...payload,
+        });
+      }
+
+      // --- MODAL: QUICK-LAUNCH QUEST FROM DRAFT ---
+      if (modalId.startsWith('modal_launch_draft_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const draftName = modalId.replace('modal_launch_draft_', '');
+        const drafts = getGuildDrafts(guildId);
+        const draft = drafts.find((d) => d.name === draftName) || drafts[0];
+
+        const rawUrl = interaction.fields.getTextInputValue('input_draft_url').trim();
+        const ctaText = interaction.fields.getTextInputValue('input_draft_cta')?.trim() || '';
+        const customText = interaction.fields.getTextInputValue('input_draft_custom_text') || '';
+
+        const parsed = parseTweetUrl(rawUrl);
+        if (!parsed) {
+          return interaction.editReply({
+            content: '❌ Invalid Twitter/X URL. Please format like: `https://x.com/username/status/123...`',
+          });
+        }
+
+        const { username, tweetId, cleanUrl } = parsed;
+        const durationMs = parseDuration(draft.duration) || 24 * 60 * 60 * 1000;
+        const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
+        const authorDisplayName = tweetMeta?.authorName || `@${username}`;
+        const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
+        const expiresAtDate = new Date(Date.now() + durationMs);
+        const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
+
+        const guild = interaction.guild || (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        if (guild && (!guild.roles.cache || guild.roles.cache.size <= 1)) {
+          await guild.roles.fetch().catch(() => null);
+        }
+
+        const actionRow = new ActionRowBuilder();
+        const btnsLower = (draft.buttons || 'like, rt').toLowerCase();
+        if (btnsLower.includes('like')) {
+          actionRow.addComponents(
+            new ButtonBuilder().setCustomId(`verify_like_${tweetId}`).setLabel('Like').setEmoji('❤️').setStyle(ButtonStyle.Secondary)
+          );
+        }
+        if (btnsLower.includes('rt') || btnsLower.includes('retweet')) {
+          actionRow.addComponents(
+            new ButtonBuilder().setCustomId(`verify_rt_${tweetId}`).setLabel('Retweet').setEmoji('🔁').setStyle(ButtonStyle.Secondary)
+          );
+        }
+        if (btnsLower.includes('comment') || btnsLower.includes('reply')) {
+          actionRow.addComponents(
+            new ButtonBuilder().setCustomId(`verify_comment_${tweetId}`).setLabel('Comment').setEmoji('💬').setStyle(ButtonStyle.Secondary)
+          );
+        }
+        actionRow.addComponents(
+          new ButtonBuilder().setLabel('View on X').setStyle(ButtonStyle.Link).setURL(cleanUrl)
+        );
+
+        const processedSnippet = processSnippetRequirements(customText, guild, username);
+        let messageContent = `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n`;
+        if (ctaText) {
+          messageContent += `**${ctaText}**\n`;
+        }
+        messageContent += `Expires <t:${expireTimestampSec}:R>`;
+        if (processedSnippet.snippetBody) {
+          messageContent += `\n\n${processedSnippet.snippetBody}`;
+        }
+        if (processedSnippet.pingContent) {
+          messageContent += `\n${processedSnippet.pingContent}`;
+        }
+
+        const tweetEmbed = new EmbedBuilder()
+          .setColor(0x1da1f2)
+          .setAuthor({
+            name: `${authorDisplayName} (@${username})`,
+            iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+            url: cleanUrl,
+          })
+          .setTitle(`@${username} tweeted !`)
+          .setURL(cleanUrl)
+          .setDescription(tweetBody)
+          .setFooter({
+            text: `Powered by Cohesion • Preset: ${draft.name} (+${draft.points} CP)`,
+            iconURL: interaction.client.user.displayAvatarURL(),
+          })
+          .setTimestamp();
+
+        if (tweetMeta?.mediaUrl) {
+          tweetEmbed.setImage(tweetMeta.mediaUrl);
+        } else if (tweetMeta?.authorAvatar) {
+          tweetEmbed.setThumbnail(tweetMeta.authorAvatar);
+        }
+
+        const feedChannel = interaction.guild.channels.cache.find(
+          (c) => c.isTextBased() && (c.name.includes('cohesion-feed') || c.name.includes('quest-feed') || c.name.includes('engage'))
+        ) || interaction.channel;
+
+        await feedChannel.send({
+          content: messageContent,
+          embeds: [tweetEmbed],
+          components: [actionRow],
+        });
+
+        return interaction.editReply({
+          content: `🚀 Successfully launched **${draft.name}** quest to <#${feedChannel.id}> with **+${draft.points} CP** reward!`,
+        });
+      }
+
       // --- MODAL: ADMIN TRACK TWITTER HANDLES ---
       if (modalId === 'modal_track_twitter') {
         await interaction.deferReply({ ephemeral: true });
@@ -6343,6 +6537,54 @@ export default {
           content: `✅ **AutoMod Policy Updated!** Active policy set to: **${labels[chosenMode] || chosenMode}**`,
           ephemeral: true,
         });
+      }
+
+      // --- SELECT: QUICK-LAUNCH QUEST FROM DRAFT ---
+      if (selectId === 'select_launch_draft') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to launch quests.',
+            ephemeral: true,
+          });
+        }
+
+        const selectedDraftName = interaction.values[0];
+        const drafts = getGuildDrafts(guildId);
+        const draft = drafts.find((d) => d.name === selectedDraftName) || drafts[0];
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_launch_draft_${draft.name}`)
+          .setTitle(`🚀 Launch [${draft.name}] Quest`);
+
+        const urlInput = new TextInputBuilder()
+          .setCustomId('input_draft_url')
+          .setLabel('Twitter / X Post URL')
+          .setPlaceholder('https://x.com/username/status/123456...')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const ctaInput = new TextInputBuilder()
+          .setCustomId('input_draft_cta')
+          .setLabel('Headline / Call to Action (Optional)')
+          .setPlaceholder('e.g. Raid this post!')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const textInput = new TextInputBuilder()
+          .setCustomId('input_draft_custom_text')
+          .setLabel('Custom Requirements (Optional)')
+          .setPlaceholder('e.g. Must follow @account.\n@Socials')
+          .setValue(draft.keyword ? `Include tag: ${draft.keyword}` : '')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(urlInput),
+          new ActionRowBuilder().addComponents(ctaInput),
+          new ActionRowBuilder().addComponents(textInput)
+        );
+
+        return interaction.showModal(modal);
       }
     }
 
