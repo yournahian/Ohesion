@@ -10,70 +10,119 @@ import {
 } from 'discord.js';
 import { supabase } from '../../lib/supabase.js';
 import { parseTweetUrl, fetchTweetMetadata } from '../../utils/twitter.js';
+import { getGuildDrafts } from '../../utils/questDrafts.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('post-tweet')
-    .setDescription('Publish a tracked Twitter/X quest card with Like & Retweet verification buttons.')
-    .addStringOption(option =>
+    .setDescription('Publish a tracked Twitter/X quest card with Like, Retweet & Reply verification.')
+    .addStringOption((option) =>
       option
         .setName('url')
         .setDescription('The URL of the Tweet / X post')
         .setRequired(true)
     )
-    .addIntegerOption(option =>
+    .addStringOption((option) =>
+      option
+        .setName('draft')
+        .setDescription('Load pre-configured quest preset (e.g. standard_raid, high_priority, verified_only)')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Standard Raid (50 CP, 24h)', value: 'standard_raid' },
+          { name: 'High Priority (100 CP, 6h, 2x Lead)', value: 'high_priority' },
+          { name: 'Verified Only (150 CP, 12h, Twitter Blue)', value: 'verified_only' }
+        )
+    )
+    .addIntegerOption((option) =>
       option
         .setName('points')
-        .setDescription('Points awarded per verified action (default: 25)')
+        .setDescription('Cohesion Points (CP) awarded per verified action (default: 25)')
         .setRequired(false)
         .setMinValue(1)
     )
-    .addStringOption(option =>
+    .addStringOption((option) =>
       option
         .setName('duration')
         .setDescription('Duration of quest: e.g. "30m", "45m", "2h", "24h", "3d" (default: 24h)')
         .setRequired(false)
     )
-    .addIntegerOption(option =>
-      option
-        .setName('expire_hours')
-        .setDescription('Hours until engagement quest expires (alternative: use duration)')
-        .setRequired(false)
-        .setMinValue(1)
-        .setMaxValue(168)
-    )
-    .addStringOption(option =>
+    .addStringOption((option) =>
       option
         .setName('buttons')
         .setDescription('Buttons to include: e.g. "like, rt, comment", or "like, rt", or "none"')
         .setRequired(false)
     )
-    .addBooleanOption(option =>
+    .addIntegerOption((option) =>
+      option
+        .setName('lead_bonus')
+        .setDescription('Lead Engagers bonus: Extra CP awarded within first 15 minutes of posting')
+        .setRequired(false)
+        .setMinValue(1)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName('verified_only')
+        .setDescription('Only Twitter Blue / X Premium verified accounts can claim points? (default: false)')
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName('require_follow')
+        .setDescription('Require members to follow the tweet author to claim? (default: false)')
+        .setRequired(false)
+    )
+    .addRoleOption((option) =>
+      option
+        .setName('role_gate')
+        .setDescription('Only members with this Discord role can participate in the quest')
+        .setRequired(false)
+    )
+    .addRoleOption((option) =>
+      option
+        .setName('assign_role')
+        .setDescription('Automatically award this role to members who engage with this tweet')
+        .setRequired(false)
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName('min_chars')
+        .setDescription('Minimum character length required for comments/replies')
+        .setRequired(false)
+        .setMinValue(1)
+    )
+    .addStringOption((option) =>
+      option
+        .setName('keyword')
+        .setDescription('Require a specific keyword/hashtag in reply (e.g. #Cohesion)')
+        .setRequired(false)
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName('total_bundle')
+        .setDescription('Extra bonus point bundle for completing all required actions')
+        .setRequired(false)
+        .setMinValue(1)
+    )
+    .addBooleanOption((option) =>
       option
         .setName('show_image')
         .setDescription('Show tweet media thumbnail & image display? (default: true)')
         .setRequired(false)
     )
-    .addStringOption(option =>
+    .addStringOption((option) =>
       option
         .setName('tag')
-        .setDescription('Server role or member tag to ping (e.g. @Socials, @everyone, or role name)')
+        .setDescription('Server role or member tag to ping (e.g. @Socials, @everyone)')
         .setRequired(false)
     )
-    .addChannelOption(option =>
+    .addChannelOption((option) =>
       option
         .setName('channel')
         .setDescription('Channel to broadcast the tweet quest (default: current channel)')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(false)
     )
-    .addRoleOption(option =>
-      option
-        .setName('role_mention')
-        .setDescription('Role to ping (alternative to tag)')
-        .setRequired(false)
-    )
-    .addStringOption(option =>
+    .addStringOption((option) =>
       option
         .setName('custom_text')
         .setDescription('Custom description / requirements list for the post')
@@ -81,13 +130,12 @@ export default {
     ),
 
   async execute(interaction) {
-    // Require Manage Messages or Manage Server
     if (
       !interaction.memberPermissions.has(PermissionFlagsBits.ManageMessages) &&
       !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)
     ) {
       return interaction.reply({
-        content: '⛔ You need `Manage Messages` or `Manage Server` permissions to post engagement quests.',
+        content: '⛔ You need `Manage Messages` or `Manage Server` permissions to post quests.',
         ephemeral: true,
       });
     }
@@ -103,106 +151,57 @@ export default {
     }
 
     const { username, tweetId, cleanUrl } = parsed;
-    const points = interaction.options.getInteger('points') || 25;
-    const rawDuration = interaction.options.getString('duration');
-    const expireHours = interaction.options.getInteger('expire_hours') || 24;
-    const buttonsOption = interaction.options.getString('buttons') || 'all';
+
+    const draftName = interaction.options.getString('draft');
+    const drafts = getGuildDrafts(interaction.guildId);
+    const draftConfig = draftName ? drafts.find((d) => d.name === draftName) : null;
+
+    const points = interaction.options.getInteger('points') || draftConfig?.points || 25;
+    const rawDuration = interaction.options.getString('duration') || draftConfig?.duration;
+    const buttonsOption = interaction.options.getString('buttons') || draftConfig?.buttons || 'all';
     const showImage = interaction.options.getBoolean('show_image') ?? true;
     const rawTag = interaction.options.getString('tag');
     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
-    const roleMention = interaction.options.getRole('role_mention');
     const customText = interaction.options.getString('custom_text');
+
+    const leadBonus = interaction.options.getInteger('lead_bonus') || draftConfig?.leadEngagersBonus || 0;
+    const verifiedOnly = interaction.options.getBoolean('verified_only') ?? draftConfig?.verifiedOnly ?? false;
+    const requireFollow = interaction.options.getBoolean('require_follow') ?? draftConfig?.requireFollow ?? false;
+    const roleGate = interaction.options.getRole('role_gate');
+    const assignRole = interaction.options.getRole('assign_role');
+    const minChars = interaction.options.getInteger('min_chars') || draftConfig?.minCharacters || 0;
+    const keyword = interaction.options.getString('keyword') || draftConfig?.keyword || '';
+    const totalBundle = interaction.options.getInteger('total_bundle') || 0;
 
     await interaction.deferReply({ ephemeral: true });
 
-    // Fetch tweet metadata with media thumbnail & author avatar
+    // Fetch tweet metadata
     const tweetMeta = await fetchTweetMetadata(cleanUrl, username, tweetId);
     const authorDisplayName = tweetMeta?.authorName || `@${username}`;
-    const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
+    const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn Cohesion Points (CP)!';
 
-    // Calculate expiration timestamp (supporting minutes like 30m, 45m, 1h, 24h, 3d)
+    // Parse duration
     let durationMs = 24 * 60 * 60 * 1000;
     if (rawDuration) {
       const match = rawDuration.trim().toLowerCase().match(/^(\d+)\s*(m|h|d)$/);
       if (match) {
         const val = parseInt(match[1], 10);
-        if (match[2] === 'm') durationMs = val * 60 * 1000;
-        else if (match[2] === 'h') durationMs = val * 60 * 60 * 1000;
-        else if (match[2] === 'd') durationMs = val * 24 * 60 * 60 * 1000;
-      } else {
-        const num = parseInt(rawDuration, 10);
-        if (!isNaN(num) && num > 0) durationMs = num * 60 * 60 * 1000;
+        const unit = match[2];
+        if (unit === 'm') durationMs = val * 60 * 1000;
+        if (unit === 'h') durationMs = val * 60 * 60 * 1000;
+        if (unit === 'd') durationMs = val * 24 * 60 * 60 * 1000;
       }
-    } else {
-      durationMs = expireHours * 60 * 60 * 1000;
     }
 
     const expiresAtDate = new Date(Date.now() + durationMs);
     const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
-    // Resolve tag mention (e.g. @Socials, @everyone, @here, or role ID / name)
-    let tagMention = '';
-    if (roleMention) {
-      tagMention = `<@&${roleMention.id}>`;
-    } else if (rawTag && rawTag.trim()) {
-      const t = rawTag.trim();
-      if (t === '@everyone' || t === '@here') {
-        tagMention = t;
-      } else if (/^<@&?\d+>$/.test(t)) {
-        tagMention = t;
-      } else if (/^\d{17,20}$/.test(t)) {
-        tagMention = `<@&${t}>`;
-      } else {
-        const cleanName = t.replace(/^@/, '').toLowerCase();
-        const role = interaction.guild?.roles?.cache?.find(
-          (r) => r.name.toLowerCase() === cleanName
-        );
-        if (role) {
-          tagMention = `<@&${role.id}>`;
-        } else {
-          tagMention = t.startsWith('@') ? t : `@${t}`;
-        }
-      }
-    }
-
-    // Format custom snippet with bullet points
-    let formattedSnippet = '';
-    if (customText && customText.trim()) {
-      formattedSnippet = customText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .map((line) => (/^[•\-\*]\s+/.test(line) ? line : `• ${line}`))
-        .join('\n');
-    }
-
-    // 3. Construct Interactive Action Row with Filtered Buttons
     const btnFilter = buttonsOption.toLowerCase().trim();
-    const isNone =
-      btnFilter === 'none' ||
-      btnFilter === 'no' ||
-      btnFilter === 'off' ||
-      btnFilter === '0' ||
-      btnFilter === 'false' ||
-      btnFilter === 'remove' ||
-      btnFilter === 'remove all' ||
-      btnFilter === 'hide';
-
-    const isAll =
-      !isNone &&
-      (btnFilter === 'all' ||
-        btnFilter === '' ||
-        (!btnFilter.includes('like') &&
-          !btnFilter.includes('rt') &&
-          !btnFilter.includes('retweet') &&
-          !btnFilter.includes('repost') &&
-          !btnFilter.includes('comment') &&
-          !btnFilter.includes('reply')));
+    const isNone = btnFilter === 'none';
+    const isAll = btnFilter === 'all' || (!btnFilter.includes('like') && !btnFilter.includes('rt') && !btnFilter.includes('retweet') && !btnFilter.includes('comment') && !btnFilter.includes('reply'));
 
     const includeLike = !isNone && (isAll || btnFilter.includes('like'));
-    const includeRt =
-      !isNone &&
-      (isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost'));
+    const includeRt = !isNone && (isAll || btnFilter.includes('rt') || btnFilter.includes('retweet') || btnFilter.includes('repost'));
     const includeComment = !isNone && (isAll || btnFilter.includes('comment') || btnFilter.includes('reply'));
 
     const actionRow = new ActionRowBuilder();
@@ -237,46 +236,53 @@ export default {
       );
     }
 
-    // Always include View on X link button
     actionRow.addComponents(
       new ButtonBuilder()
-        .setLabel('View on X')
+        .setLabel('View on X ↗️')
         .setStyle(ButtonStyle.Link)
         .setURL(cleanUrl)
     );
 
-    const hasAnyAction = includeLike || includeRt || includeComment;
+    let requirementsList = [];
+    if (leadBonus > 0) requirementsList.push(`⚡ **Lead Engagers:** +${leadBonus} CP bonus for first 15 mins!`);
+    if (verifiedOnly) requirementsList.push(`🔷 **Verified Only:** Requires Twitter Blue / X Premium.`);
+    if (requireFollow) requirementsList.push(`👤 **Require Follow:** Must follow @${username}.`);
+    if (roleGate) requirementsList.push(`🔒 **Role Gate:** <@&${roleGate.id}> required to claim.`);
+    if (assignRole) requirementsList.push(`🎖️ **Reward Role:** Awards <@&${assignRole.id}> on claim.`);
+    if (keyword) requirementsList.push(`💬 **Keyword Required:** \`${keyword}\` in comment.`);
+    if (minChars > 0) requirementsList.push(`📏 **Min Reply Length:** ${minChars} chars.`);
+    if (totalBundle > 0) requirementsList.push(`🎁 **Completion Bundle:** +${totalBundle} CP when all actions done.`);
 
-    // Construct Message Content
-    let messageContent = hasAnyAction
-      ? `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n` +
-        `**Engage to collect your points**\n` +
-        `Expires <t:${expireTimestampSec}:R>`
-      : `**${authorDisplayName}** just posted :\n${cleanUrl}`;
+    let messageContent = `**${authorDisplayName}** just posted on X:\n${cleanUrl}\n\n` +
+      `**Engage to collect your Cohesion Points (CP)**\n` +
+      `Expires <t:${expireTimestampSec}:R>`;
 
-    if (formattedSnippet) {
-      messageContent += `\n\n${formattedSnippet}`;
+    if (requirementsList.length > 0) {
+      messageContent += `\n\n${requirementsList.join('\n')}`;
     }
 
-    if (tagMention) {
-      messageContent += `\n${tagMention}`;
+    if (customText) {
+      messageContent += `\n\n📌 *Note: ${customText}*`;
     }
 
-    // Build optional Twitter Card Embed
+    if (rawTag) {
+      messageContent += `\n${rawTag}`;
+    }
+
     const embeds = [];
     if (showImage) {
       const tweetEmbed = new EmbedBuilder()
-        .setColor(0x1da1f2) // Twitter Sky Blue
+        .setColor(0x1da1f2)
         .setAuthor({
           name: `${authorDisplayName} (@${username})`,
           iconURL: tweetMeta?.authorAvatar || 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
           url: cleanUrl,
         })
-        .setTitle(`@${username} tweeted !`)
+        .setTitle(`@${username} tweeted!`)
         .setURL(cleanUrl)
         .setDescription(tweetBody)
         .setFooter({
-          text: 'Powered by Questify Gamification',
+          text: 'Powered by Cohesion Ecosystem',
           iconURL: interaction.client.user.displayAvatarURL(),
         })
         .setTimestamp();
@@ -293,7 +299,6 @@ export default {
     const components = actionRow.components.length > 0 ? [actionRow] : [];
 
     try {
-      // 4. Send the message to the target broadcast channel
       const sentMessage = await targetChannel.send({
         content: messageContent,
         embeds,
@@ -302,8 +307,7 @@ export default {
         allowedMentions: { parse: ['roles', 'users', 'everyone'] },
       });
 
-      // 5. Store Quest details in Supabase
-      const { error: dbError } = await supabase.from('tweet_quests').upsert(
+      await supabase.from('tweet_quests').upsert(
         {
           tweet_id: tweetId,
           guild_id: interaction.guildId,
@@ -319,17 +323,13 @@ export default {
         { onConflict: 'tweet_id' }
       );
 
-      if (dbError) {
-        console.error('[DB ERROR] Failed to record tweet quest:', dbError);
-      }
-
       return interaction.editReply({
-        content: `✅ Successfully broadcasted tweet engagement card to <#${targetChannel.id}>! (Tweet ID: \`${tweetId}\`)`,
+        content: `✅ Successfully broadcasted tweet quest card to <#${targetChannel.id}>! (Tweet ID: \`${tweetId}\`)`,
       });
     } catch (err) {
       console.error('[POST TWEET ERROR]:', err);
       return interaction.editReply({
-        content: `❌ Failed to send message to <#${targetChannel.id}>. Make sure the bot has permissions in that channel.`,
+        content: `❌ Failed to broadcast to <#${targetChannel.id}>: ${err.message}`,
       });
     }
   },

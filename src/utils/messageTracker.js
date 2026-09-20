@@ -1,0 +1,116 @@
+import { supabase } from '../lib/supabase.js';
+
+// In-memory real-time cache for high performance
+// guild_channel_user: `${guildId}:${channelId}:${userId}` => count
+const channelUserStats = new Map();
+// guild_user: `${guildId}:${userId}` => count
+const userTotalStats = new Map();
+// Rolling message logs with timestamps for date filtering: [{ guildId, channelId, userId, timestamp }]
+const rollingLogs = [];
+const MAX_ROLLING_LOGS = 50000;
+
+/**
+ * Records a message event for a user in a specific channel.
+ */
+export async function trackMessage(guildId, channelId, userId) {
+  if (!guildId || !channelId || !userId) return;
+
+  const now = Date.now();
+
+  // Update in-memory counts
+  const chKey = `${guildId}:${channelId}:${userId}`;
+  channelUserStats.set(chKey, (channelUserStats.get(chKey) || 0) + 1);
+
+  const userKey = `${guildId}:${userId}`;
+  userTotalStats.set(userKey, (userTotalStats.get(userKey) || 0) + 1);
+
+  rollingLogs.push({ guildId, channelId, userId, timestamp: now });
+  if (rollingLogs.length > MAX_ROLLING_LOGS) {
+    rollingLogs.shift();
+  }
+
+  // Gracefully attempt to record to Supabase if table exists
+  try {
+    await supabase.rpc('increment_message_count', {
+      p_guild_id: guildId,
+      p_channel_id: channelId,
+      p_discord_id: userId,
+    }).catch(() => null);
+  } catch (err) {
+    // Ignore RPC error if not configured in postgres
+  }
+}
+
+/**
+ * Gets total message count for a user in a guild.
+ */
+export function getUserMessageCount(guildId, userId) {
+  return userTotalStats.get(`${guildId}:${userId}`) || 0;
+}
+
+/**
+ * Gets user's channel-by-channel breakdown in a guild.
+ */
+export function getUserChannelBreakdown(guildId, userId) {
+  const breakdown = [];
+  for (const [key, count] of channelUserStats.entries()) {
+    const [gId, cId, uId] = key.split(':');
+    if (gId === guildId && uId === userId) {
+      breakdown.push({ channelId: cId, count });
+    }
+  }
+  return breakdown.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Gets message counts for all users in a specific channel.
+ */
+export function getChannelUserStats(guildId, channelId) {
+  const stats = new Map();
+  for (const [key, count] of channelUserStats.entries()) {
+    const [gId, cId, uId] = key.split(':');
+    if (gId === guildId && cId === channelId) {
+      stats.set(uId, (stats.get(uId) || 0) + count);
+    }
+  }
+  return stats;
+}
+
+/**
+ * Fetches recent message history from a Discord channel directly,
+ * aggregating counts per user.
+ */
+export async function auditChannelMessages(channel, limit = 100) {
+  const userCounts = new Map();
+  if (!channel || !channel.isTextBased()) return userCounts;
+
+  try {
+    const messages = await channel.messages.fetch({ limit: Math.min(100, limit) });
+    for (const msg of messages.values()) {
+      if (msg.author.bot) continue;
+      const uId = msg.author.id;
+      userCounts.set(uId, (userCounts.get(uId) || 0) + 1);
+
+      // Sync into memory tracker
+      const chKey = `${channel.guildId}:${channel.id}:${uId}`;
+      channelUserStats.set(chKey, Math.max(channelUserStats.get(chKey) || 0, userCounts.get(uId)));
+    }
+  } catch (err) {
+    console.warn('[AUDIT CHANNEL MSG WARN]:', err.message);
+  }
+
+  return userCounts;
+}
+
+/**
+ * Filters message logs by date range.
+ */
+export function getLogsInDateRange(guildId, startMs, endMs, channelId = null) {
+  return rollingLogs.filter(log => {
+    if (log.guildId !== guildId) return false;
+    if (channelId && log.channelId !== channelId) return false;
+    if (startMs && log.timestamp < startMs) return false;
+    if (endMs && log.timestamp > endMs) return false;
+    return true;
+  });
+}

@@ -28,7 +28,7 @@ export function createLiveSession({
     sessionId,
     guildId,
     channelId,
-    title: title || 'Questify Live Quiz Show',
+    title: title || 'Cohesion Live Quiz Show',
     questionTimeSec: Math.max(5, Math.min(120, parseInt(questionTimeSec, 10) || 20)),
     breakTimeSec: Math.max(3, Math.min(60, parseInt(breakTimeSec, 10) || 8)),
     basePoints: Math.max(10, parseInt(basePoints, 10) || 100),
@@ -398,7 +398,7 @@ export async function startLiveQuiz(sessionId, channel, client) {
       `• **Top 10 XP Bonus:** Top 10 finishers win bonus XP!\n\n` +
       `🏁 **First question appears in 10 seconds! Get ready!**`
     )
-    .setFooter({ text: 'Questify Live Tournament Engine' });
+    .setFooter({ text: 'Cohesion Live Tournament Engine' });
 
   await channel.send({ embeds: [startEmbed] });
   await new Promise((r) => setTimeout(r, 10000));
@@ -467,9 +467,9 @@ export async function startLiveQuiz(sessionId, channel, client) {
       `🎉 **The Quiz Show has concluded!** Congratulations to all participants!\n\n` +
       `### 🎖️ Official Top 10 Winners & XP Bonuses:\n` +
       `${podiumText}\n\n` +
-      `✨ All Quest Points (QP) and Top 10 XP Bonuses have been deposited directly into member accounts!`
+      `✨ All Cohesion Points (CP) and Top 10 XP Bonuses have been deposited directly into member accounts!`
     )
-    .setFooter({ text: 'Questify Live Tournament • Match Complete' })
+    .setFooter({ text: 'Cohesion Live Tournament • Match Complete' })
     .setTimestamp();
 
   await channel.send({ embeds: [grandFinaleEmbed] }).catch(() => null);

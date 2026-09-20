@@ -25,13 +25,13 @@ export function buildQuizPayload(quiz, totalParticipants = 0) {
 
   const embed = new EmbedBuilder()
     .setColor(0x9b5de5) // Vibrant Amethyst / Purple
-    .setTitle('🧠 Questify Community Quiz!')
+    .setTitle('🧠 Cohesion Community Quiz!')
     .setDescription(
       `**Question:**\n` +
       `### ${quiz.question}\n\n` +
       `**Options:**\n` +
       `${choicesList}\n\n` +
-      `🪙 **Reward:** **+${quiz.reward_points} QP** & **+${quiz.reward_xp} XP** for correct answer\n` +
+      `🪙 **Reward:** **+${quiz.reward_points} CP** & **+${quiz.reward_xp} XP** for correct answer\n` +
       `⏳ **Expires:** <t:${expireTimestampSec}:R>\n` +
       `👥 **Answered:** **${totalParticipants}** member${totalParticipants === 1 ? '' : 's'}`
     )

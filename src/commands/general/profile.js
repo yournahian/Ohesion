@@ -5,7 +5,7 @@ import { getRequiredXpForLevel } from '../../utils/levelCalculator.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('profile')
-    .setDescription('View your or another user\'s level, XP, and Engage Points.')
+    .setDescription("View your or another user's level, XP, and Cohesion Points (CP).")
     .addUserOption(option =>
       option
         .setName('user')
@@ -33,6 +33,8 @@ export default {
     const xp = Number(userRecord?.xp || 0);
     const level = Number(userRecord?.level || 1);
     const points = Number(userRecord?.total_points || 0);
+    const walletAddress = userRecord?.wallet_address || userRecord?.evm_address || 'Not Linked';
+    const twitterHandle = userRecord?.twitter_handle ? `@${userRecord.twitter_handle}` : 'Not Linked';
 
     const currentLevelXp = getRequiredXpForLevel(level);
     const nextLevelXp = getRequiredXpForLevel(level + 1);
@@ -47,22 +49,25 @@ export default {
     const progressBar = '▰'.repeat(filledBars) + '▱'.repeat(emptyBars);
 
     const embed = new EmbedBuilder()
-      .setColor(0x3a86ff)
+      .setColor(0x5865f2)
       .setAuthor({
-        name: `${targetUser.displayName || targetUser.username}'s Profile`,
+        name: `${targetUser.displayName || targetUser.username}'s Cohesion Profile`,
         iconURL: targetUser.displayAvatarURL({ dynamic: true }),
       })
       .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
         { name: '🎖️ Level', value: `**${level}**`, inline: true },
-        { name: '🪙 Quest Points', value: `**${points.toLocaleString()}**`, inline: true },
-        { name: '✨ Total XP', value: `**${xp.toLocaleString()}**`, inline: true },
+        { name: '🪙 Cohesion Points', value: `**${points.toLocaleString()} CP**`, inline: true },
+        { name: '✨ Total XP', value: `**${xp.toLocaleString()} XP**`, inline: true },
         {
           name: `📈 Level Progress (${progressPercent}%)`,
           value: `${progressBar}\n${xpIntoLevel.toLocaleString()} / ${xpNeededForNext.toLocaleString()} XP to Level ${level + 1}`,
-        }
+        },
+        { name: '🔗 Connected Wallet', value: `\`${walletAddress}\``, inline: true },
+        { name: '🐦 Connected X', value: `\`${twitterHandle}\``, inline: true }
       )
-      .setFooter({ text: 'Questify Gamification System' })
+      .setFooter({ text: 'Cohesion Gamification Ecosystem' })
+      .setTimestamp();
       .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });

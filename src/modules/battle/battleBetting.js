@@ -31,7 +31,7 @@ export async function placeBet({ matchId, guildId, bettorId, bettorName, targetI
   if (currentPoints < betAmount) {
     return {
       success: false,
-      message: `🪙 **Insufficient Quest Points:** You only have **${currentPoints} QP**, but tried to bet **${betAmount} QP**.`,
+      message: `🪙 **Insufficient Cohesion Points:** You only have **${currentPoints} CP**, but tried to bet **${betAmount} CP**.`,
     };
   }
 

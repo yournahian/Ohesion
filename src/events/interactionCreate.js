@@ -9,11 +9,56 @@ import {
   TextInputStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  ChannelSelectMenuBuilder,
+  UserSelectMenuBuilder,
   PermissionFlagsBits,
   MessageFlags,
   ChannelType,
+  AttachmentBuilder,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
+import {
+  buildExportDashboard,
+  buildChannelSelector,
+  buildUserSelector,
+  generateUsersCsvAttachment,
+  generateChannelCsvAttachment,
+} from '../utils/analyticsExporter.js';
+import {
+  getUserMessageCount,
+  getUserChannelBreakdown,
+  auditChannelMessages,
+} from '../utils/messageTracker.js';
+import {
+  buildAutoModDashboard,
+  buildPunishmentSelector,
+  buildBannedWordsModal,
+} from '../utils/autoModView.js';
+import {
+  getAutoModSettings,
+  updateAutoModSettings,
+  resetGuildStrikes,
+} from '../utils/autoModEngine.js';
+import {
+  getGuildSettings,
+  setGuildPreset,
+  setGuildCurrency,
+  setGuildCustomModules,
+  isModuleEnabled,
+  getCurrencyType,
+  buildServerModePayload,
+  buildCustomModulesSelector,
+  PRESET_CONFIGS,
+  DEFAULT_MODULES,
+} from '../utils/guildSettings.js';
+import { detectChain } from '../utils/walletValidator.js';
+import { parseCmcPostUrl, verifyCmcEngagement } from '../utils/cmcVerifier.js';
+import { getGuildDrafts, saveGuildDraft } from '../utils/questDrafts.js';
+import { setGuildInflation, getGuildInflation } from '../workers/inflationWorker.js';
+import { buildInflationDashboard } from '../utils/inflationView.js';
+import { getAdminPanelPayload } from '../commands/admin/admin.js';
+import { addTrackedHandle, removeTrackedHandle, getTrackedHandles } from '../workers/tweetPoller.js';
+import { logActivity } from '../utils/activityLogger.js';
 import { verifyTwitterAction, parseTweetUrl, fetchTweetOEmbed, fetchTweetMetadata } from '../utils/twitter.js';
 import { buildHubPayload } from '../utils/hubView.js';
 import { buildAuctionPayload, executeBid, scheduleAuctionConclusion } from '../utils/auctionManager.js';
@@ -114,16 +159,19 @@ async function buildRafflePanel({ guildId, discordId, raffleId, purchaseResult =
   }
 
   const costPerTicket = Number(raffle.cost);
+  const currType = getCurrencyType(guildId);
+  const currLabel = currType === 'xp' ? 'XP' : 'CP';
+  const balanceField = currType === 'xp' ? 'xp' : 'total_points';
 
   // Fetch user profile
   const { data: userRecord } = await supabase
     .from('users')
-    .select('total_points')
+    .select(balanceField)
     .eq('guild_id', guildId)
     .eq('discord_id', discordId)
     .maybeSingle();
 
-  const userPoints = Number(userRecord?.total_points || 0);
+  const userBalance = Number(userRecord?.[balanceField] || 0);
 
   // Fetch all user entries for this raffle to compute user's ticket count
   const { data: userEntries } = await supabase
@@ -145,7 +193,7 @@ async function buildRafflePanel({ guildId, discordId, raffleId, purchaseResult =
 
   let banner = '';
   if (purchaseResult) {
-    banner = `✅ **Successfully bought ${purchaseResult.count.toLocaleString()} ticket${purchaseResult.count > 1 ? 's' : ''} for ${purchaseResult.totalCost.toLocaleString()} QP!**\n\n`;
+    banner = `✅ **Successfully bought ${purchaseResult.count.toLocaleString()} ticket${purchaseResult.count > 1 ? 's' : ''} for ${purchaseResult.totalCost.toLocaleString()} ${currLabel}!**\n\n`;
   }
 
   const embed = new EmbedBuilder()
@@ -154,34 +202,34 @@ async function buildRafflePanel({ guildId, discordId, raffleId, purchaseResult =
     .setDescription(
       banner +
       `🎁 **Prize:** **${raffle.prize}**\n` +
-      `🪙 **Ticket Cost:** **${costPerTicket.toLocaleString()} QP** per ticket\n` +
+      `🪙 **Ticket Cost:** **${costPerTicket.toLocaleString()} ${currLabel}** per ticket\n` +
       `🎟️ **Your Tickets in Pool:** **${userTickets.toLocaleString()} ticket${userTickets === 1 ? '' : 's'}**\n` +
       `🌐 **Total Tickets in Pool:** **${totalPoolTickets.toLocaleString()}**\n` +
-      `💰 **Your QP Balance:** **${userPoints.toLocaleString()} QP**\n` +
+      `💰 **Your ${currLabel} Balance:** **${userBalance.toLocaleString()} ${currLabel}**\n` +
       `⏳ **Raffle Ends:** <t:${endTimestampSec}:R> (<t:${endTimestampSec}:f>)\n\n` +
       `*Click a button below to choose how many tickets to buy:*`
     )
-    .setFooter({ text: `Raffle ID: ${raffle.raffle_id} • 1 Ticket = ${costPerTicket} QP` });
+    .setFooter({ text: `Raffle ID: ${raffle.raffle_id} • 1 Ticket = ${costPerTicket} ${currLabel}` });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`rfbuy_1_${raffleId}`)
-      .setLabel(`Buy 1 Ticket (${costPerTicket} QP)`)
+      .setLabel(`Buy 1 Ticket (${costPerTicket} ${currLabel})`)
       .setEmoji('🎟️')
       .setStyle(ButtonStyle.Success)
-      .setDisabled(userPoints < costPerTicket),
+      .setDisabled(userBalance < costPerTicket),
     new ButtonBuilder()
       .setCustomId(`rfbuy_5_${raffleId}`)
-      .setLabel(`Buy 5 Tickets (${costPerTicket * 5} QP)`)
+      .setLabel(`Buy 5 Tickets (${costPerTicket * 5} ${currLabel})`)
       .setEmoji('🎟️')
       .setStyle(ButtonStyle.Primary)
-      .setDisabled(userPoints < costPerTicket * 5),
+      .setDisabled(userBalance < costPerTicket * 5),
     new ButtonBuilder()
       .setCustomId(`rfbuy_10_${raffleId}`)
-      .setLabel(`Buy 10 Tickets (${costPerTicket * 10} QP)`)
+      .setLabel(`Buy 10 Tickets (${costPerTicket * 10} ${currLabel})`)
       .setEmoji('🎟️')
       .setStyle(ButtonStyle.Primary)
-      .setDisabled(userPoints < costPerTicket * 10),
+      .setDisabled(userBalance < costPerTicket * 10),
     new ButtonBuilder()
       .setCustomId(`rfbuy_custom_${raffleId}`)
       .setLabel('Custom Quantity')
@@ -211,26 +259,29 @@ async function executeRaffleTicketPurchase({ guildId, discordId, raffleId, count
 
   const costPerTicket = Number(raffle.cost);
   const totalCost = costPerTicket * safeCount;
+  const currType = getCurrencyType(guildId);
+  const currLabel = currType === 'xp' ? 'XP' : 'CP';
+  const balanceField = currType === 'xp' ? 'xp' : 'total_points';
 
   const { data: userRecord } = await supabase
     .from('users')
-    .select('total_points')
+    .select(balanceField)
     .eq('guild_id', guildId)
     .eq('discord_id', discordId)
     .maybeSingle();
 
-  const userPoints = Number(userRecord?.total_points || 0);
-  if (userPoints < totalCost) {
+  const userBalance = Number(userRecord?.[balanceField] || 0);
+  if (userBalance < totalCost) {
     return {
-      error: `❌ Insufficient Quest Points! You need **${totalCost.toLocaleString()} QP** for ${safeCount} ticket(s) (${costPerTicket} QP each), but you only have **${userPoints.toLocaleString()} QP**.`,
+      error: `❌ Insufficient ${currLabel === 'XP' ? 'Experience Points' : 'Cohesion Points'}! You need **${totalCost.toLocaleString()} ${currLabel}** for ${safeCount} ticket(s) (${costPerTicket} ${currLabel} each), but you only have **${userBalance.toLocaleString()} ${currLabel}**.`,
     };
   }
 
-  // Deduct points
-  const remainingPoints = userPoints - totalCost;
+  // Deduct points or XP
+  const remainingBalance = userBalance - totalCost;
   await supabase
     .from('users')
-    .update({ total_points: remainingPoints })
+    .update({ [balanceField]: remainingBalance })
     .eq('guild_id', guildId)
     .eq('discord_id', discordId);
 
@@ -604,14 +655,14 @@ export default {
               .setColor(0x5865f2)
               .setTitle('🔴 Multi-Track Voice Recording Active (Session Controller)')
               .setDescription(
-                `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+                `Cohesion is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
                 `• **Session Controller:** <@${activeStatus.initiatedById}> (You)\n` +
                 `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
                 `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
                 `• **Selected Mode:** \`${activeStatus.mode.toUpperCase()}\`\n\n` +
                 `Click **Stop & Process Deliverables** when you want to conclude the session and generate deliverables.`
               )
-              .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Questify Podcast Engine` })
+              .setFooter({ text: `Session ID: ${activeStatus.sessionId} • Cohesion Podcast Engine` })
               .setTimestamp();
 
             const row = new ActionRowBuilder().addComponents(
@@ -711,7 +762,7 @@ export default {
             `• 📝 **Script & Notes Only:** AI transcription & summary (audio auto-deleted after processing)\n\n` +
             `*Active AI Engine:* **${aiProviderLabel}**`
           )
-          .setFooter({ text: 'Questify Visual Recording Deck • 100% UI Driven' });
+          .setFooter({ text: 'Cohesion Visual Recording Deck • 100% UI Driven' });
 
         if (interaction.replied || interaction.deferred) {
           return interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
@@ -736,7 +787,7 @@ export default {
             .setColor(0x5865f2)
             .setTitle('🔴 Multi-Track Voice Recording Active (Session Controller)')
             .setDescription(
-              `Questify is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
+              `Cohesion is currently recording in **<#${activeStatus.channelId}>**!\n\n` +
               `• **Session Controller:** <@${activeStatus.initiatedById}> (You)\n` +
               `• **Elapsed Duration:** \`${activeStatus.durationFormatted}\`\n` +
               `• **Active Speakers (${activeStatus.speakersCount}):** ${activeStatus.speakers.map((s) => `\`${s}\``).join(', ') || '*Listening for voices...*'}\n` +
@@ -867,7 +918,7 @@ export default {
         const permissions = channel.permissionsFor(interaction.client.user);
         if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions?.has(PermissionFlagsBits.Speak)) {
           return interaction.update({
-            content: `❌ I do not have permission to **Connect** or **Speak** in <#${channel.id}>. Please grant Questify voice permissions!`,
+            content: `❌ I do not have permission to **Connect** or **Speak** in <#${channel.id}>. Please grant Cohesion voice permissions!`,
             embeds: [],
             components: [],
           });
@@ -893,13 +944,13 @@ export default {
             .setColor(0x5865f2)
             .setTitle('🔴 Multi-Track Voice Recording Active')
             .setDescription(
-              `Questify is now recording in **<#${channel.id}>**!\n\n` +
+              `Cohesion is now recording in **<#${channel.id}>**!\n\n` +
               `• **Output Mode:** ${modeDisplay}\n` +
               `• **Started By:** <@${interaction.user.id}>\n` +
               `• **Stem Synchronization:** Timeline-aligned from \`00:00\`\n\n` +
               `*Each member who speaks will be recorded to their own isolated audio track. When finished, click **Stop & Process Deliverables**.*`
             )
-            .setFooter({ text: `Session ID: ${session.sessionId} • Questify Podcast Engine` })
+            .setFooter({ text: `Session ID: ${session.sessionId} • Cohesion Podcast Engine` })
             .setTimestamp();
 
           const row = new ActionRowBuilder().addComponents(
@@ -1009,7 +1060,7 @@ export default {
 
         const costInput = new TextInputBuilder()
           .setCustomId('input_raffle_cost')
-          .setLabel('Ticket Cost (Quest Points)')
+          .setLabel('Ticket Cost (Cohesion Points - CP)')
           .setValue('50')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -1039,7 +1090,7 @@ export default {
         const questionInput = new TextInputBuilder()
           .setCustomId('input_quiz_question')
           .setLabel('Quiz Question')
-          .setPlaceholder('e.g. What blockchain does Questify primarily deploy on?')
+          .setPlaceholder('e.g. What blockchain does Cohesion primarily deploy on?')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
@@ -1200,7 +1251,7 @@ export default {
         const titleInput = new TextInputBuilder()
           .setCustomId('input_lqz_title')
           .setLabel('Tournament Title')
-          .setValue('Questify Live Trivia Show')
+          .setValue('Cohesion Live Trivia Show')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -1356,7 +1407,7 @@ export default {
         const handleInput = new TextInputBuilder()
           .setCustomId('input_twitter_handle')
           .setLabel('Your Twitter / X Handle')
-          .setPlaceholder('e.g. QuestifyApp (without @)')
+          .setPlaceholder('e.g. CohesionApp (without @)')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -1364,23 +1415,23 @@ export default {
         return interaction.showModal(modal);
       }
 
-      // --- LINK WALLET BUTTON (FROM HUB) ---
+      // --- LINK WALLET BUTTON (FROM HUB - 12 CHAINS AUTO-DETECTED) ---
       if (customId === 'hub_link_wallet') {
         const modal = new ModalBuilder()
           .setCustomId('modal_link_wallet')
-          .setTitle('👛 Link Payout Wallet');
+          .setTitle('👛 Multi-Chain Payout Wallet');
 
         const addressInput = new TextInputBuilder()
           .setCustomId('input_wallet_address')
-          .setLabel('Wallet Address (EVM / Solana)')
-          .setPlaceholder('e.g. 0x71C... or Solana public key')
+          .setLabel('Wallet Address (Auto-detects 12 Chains)')
+          .setPlaceholder('ETH, SOL, BTC, SEI, XION, AVAX, BSC, ZKS, ADA...')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
         const chainInput = new TextInputBuilder()
           .setCustomId('input_wallet_chain')
-          .setLabel('Network / Chain (Optional)')
-          .setValue('Base / EVM')
+          .setLabel('Network / Chain (Optional or Auto-Detect)')
+          .setPlaceholder('Auto-detected or specify: ETH, SOL, BTC, etc.')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
@@ -1389,6 +1440,487 @@ export default {
           new ActionRowBuilder().addComponents(chainInput)
         );
 
+        return interaction.showModal(modal);
+      }
+
+      // --- MEMBER HUB: CONNECT SOCIALS ---
+      if (customId === 'hub_socials') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_connect_socials')
+          .setTitle('🌐 Connect Social Profiles');
+
+        const cmcInput = new TextInputBuilder()
+          .setCustomId('input_cmc')
+          .setLabel('CoinMarketCap (Gravity) Handle')
+          .setPlaceholder('e.g. YourUsername')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const ytInput = new TextInputBuilder()
+          .setCustomId('input_yt')
+          .setLabel('YouTube Channel / Handle')
+          .setPlaceholder('e.g. @YourChannel')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const tiktokInput = new TextInputBuilder()
+          .setCustomId('input_tiktok')
+          .setLabel('TikTok Username')
+          .setPlaceholder('e.g. @YourTikTok')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const tgInput = new TextInputBuilder()
+          .setCustomId('input_telegram')
+          .setLabel('Telegram Username')
+          .setPlaceholder('e.g. YourTelegram')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(cmcInput),
+          new ActionRowBuilder().addComponents(ytInput),
+          new ActionRowBuilder().addComponents(tiktokInput),
+          new ActionRowBuilder().addComponents(tgInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- MEMBER HUB: REFERRALS & INVITE CODES ---
+      if (customId === 'hub_referrals') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const referralCode = `COH-${discordId.slice(-5)}`;
+
+        const { count: totalInvited } = await supabase
+          .from('user_integrations')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider', 'referral_by')
+          .eq('provider_username', referralCode);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('👥 Cohesion Referral & Invite Hub')
+          .setDescription(
+            `Share your personal referral code with friends! When they join this server and enter your code, both of you earn bonus Cohesion Points!\n\n` +
+            `🔑 **Your Referral Code:** \`${referralCode}\`\n` +
+            `🎁 **Reward:** \`+50 CP per confirmed referral\`\n` +
+            `👥 **Friends Invited:** **${totalInvited || 0} Members**\n` +
+            `🪙 **Total Referral Earnings:** **${((totalInvited || 0) * 50).toLocaleString()} CP**\n\n` +
+            `*Click **Enter Friend's Code** below if you were invited by someone!*`
+          )
+          .setFooter({ text: 'Cohesion Sybil-Resistant Referral System' });
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('referral_redeem')
+            .setLabel("Enter Friend's Code")
+            .setEmoji('🎟️')
+            .setStyle(ButtonStyle.Primary)
+        );
+
+        return interaction.editReply({ embeds: [embed], components: [row] });
+      }
+
+      // --- MEMBER HUB: REDEEM REFERRAL CODE BUTTON ---
+      if (customId === 'referral_redeem') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_referral_redeem')
+          .setTitle("🎟️ Redeem Friend's Referral Code");
+
+        const codeInput = new TextInputBuilder()
+          .setCustomId('input_ref_code')
+          .setLabel('Referral Code')
+          .setPlaceholder('e.g. COH-12345')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(codeInput));
+        return interaction.showModal(modal);
+      }
+
+      // --- MEMBER HUB: PROMOTE MY TWEET (COMMUNITY RAID) ---
+      if (customId === 'hub_promote_tweet') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_promote_tweet')
+          .setTitle('🚀 Promote Your Tweet (100 CP)');
+
+        const tweetUrlInput = new TextInputBuilder()
+          .setCustomId('input_user_tweet_url')
+          .setLabel('Your Twitter / X Post URL')
+          .setPlaceholder('https://x.com/yourusername/status/123...')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const noteInput = new TextInputBuilder()
+          .setCustomId('input_user_tweet_note')
+          .setLabel('Raid Message / Call to Action')
+          .setValue('Support my post for Cohesion community points!')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(tweetUrlInput),
+          new ActionRowBuilder().addComponents(noteInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- MEMBER HUB: STANDALONE RANK CARD ---
+      if (customId === 'hub_rank_card') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: userRec } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .maybeSingle();
+
+        const xp = Number(userRec?.xp || 0);
+        const level = Number(userRec?.level || 1);
+        const points = Number(userRec?.total_points || 0);
+        const streak = Number(userRec?.daily_streak || 0);
+
+        let tierTitle = 'Bronze Explorer';
+        let tierColor = 0xcd7f32;
+        if (level >= 50) { tierTitle = 'Apex Legend'; tierColor = 0xe0aaff; }
+        else if (level >= 25) { tierTitle = 'Diamond Master'; tierColor = 0x4cc9f0; }
+        else if (level >= 10) { tierTitle = 'Gold Veteran'; tierColor = 0xffd166; }
+        else if (level >= 5) { tierTitle = 'Silver Pioneer'; tierColor = 0xc0c0c0; }
+
+        const embed = new EmbedBuilder()
+          .setColor(tierColor)
+          .setAuthor({
+            name: `${interaction.user.displayName || interaction.user.username}'s Rank Card`,
+            iconURL: interaction.user.displayAvatarURL({ dynamic: true }),
+          })
+          .setTitle(`🎖️ Rank: ${tierTitle}`)
+          .setDescription(
+            `• **Level:** **Level ${level}**\n` +
+            `• **Total XP:** **${xp.toLocaleString()} XP**\n` +
+            `• **Cohesion Points:** **${points.toLocaleString()} CP** 🪙\n` +
+            `• **Daily Streak:** **${streak} Days** 🔥`
+          )
+          .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+          .setFooter({ text: 'Cohesion Official Rank Card' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // --- ADMIN: POST MULTI-PLATFORM QUEST (CMC / YOUTUBE / TIKTOK) ---
+      if (customId === 'admin_post_multi') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_post_multi')
+          .setTitle('🌐 Launch Multi-Platform Quest');
+
+        const platformInput = new TextInputBuilder()
+          .setCustomId('input_platform_type')
+          .setLabel('Platform: cmc, youtube, tiktok, visit')
+          .setValue('cmc')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const urlInput = new TextInputBuilder()
+          .setCustomId('input_platform_url')
+          .setLabel('Post / Video / Website URL')
+          .setPlaceholder('e.g. https://coinmarketcap.com/community/post/375571289')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const pointsInput = new TextInputBuilder()
+          .setCustomId('input_platform_points')
+          .setLabel('Cohesion Points (CP) Reward')
+          .setValue('50')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const actionsInput = new TextInputBuilder()
+          .setCustomId('input_platform_actions')
+          .setLabel('Required Actions (e.g. Reaction, Repost)')
+          .setValue('Reaction & Repost')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(platformInput),
+          new ActionRowBuilder().addComponents(urlInput),
+          new ActionRowBuilder().addComponents(pointsInput),
+          new ActionRowBuilder().addComponents(actionsInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: QUEST DRAFTS / PRESETS ---
+      if (customId === 'admin_quest_drafts') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const drafts = getGuildDrafts(guildId);
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle('📝 Cohesion Quest Presets & Drafts')
+          .setDescription(
+            `Use saved presets to launch quests in 1-click without retyping complex filters:\n\n` +
+            drafts
+              .map(
+                (d, i) =>
+                  `**${i + 1}. \`${d.name}\`**\n` +
+                  `↳ ${d.description}\n` +
+                  `↳ Points: **${d.points} CP** • Duration: **${d.duration}** • Verified Only: **${d.verifiedOnly ? 'Yes' : 'No'}**`
+              )
+              .join('\n\n')
+          )
+          .setFooter({ text: 'Preset system eliminates manual form repetition' });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // --- ADMIN: AUTO-TRACK TWITTER HANDLES ---
+      if (customId === 'admin_track_twitter') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_track_twitter')
+          .setTitle('🤖 Auto-Track Twitter/X Feeds');
+
+        const currentHandles = getTrackedHandles(guildId).join(', ') || '';
+
+        const handlesInput = new TextInputBuilder()
+          .setCustomId('input_track_handles')
+          .setLabel('Twitter Handles to Monitor (comma-separated)')
+          .setValue(currentHandles)
+          .setPlaceholder('e.g. CohesionApp, ElonMusk')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(handlesInput));
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: 100% UI-DRIVEN WEEKLY INFLATION & ECONOMY DASHBOARD ---
+      if (customId === 'admin_economy_settings') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure inflation decay.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.reply({ ...payload, ephemeral: true });
+      }
+
+      // --- INFLATION UI: 1-CLICK TOGGLE OFF ---
+      if (customId === 'inflation_toggle_off') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, false, 0);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- INFLATION UI: 1-CLICK TOGGLE ON (5% Default) ---
+      if (customId === 'inflation_toggle_on') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, true, 0.05);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- INFLATION UI: 1-CLICK PRESET RATES ---
+      if (customId === 'inflation_preset_3') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, true, 0.03);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      if (customId === 'inflation_preset_5') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, true, 0.05);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      if (customId === 'inflation_preset_10') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, true, 0.10);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      if (customId === 'inflation_preset_15') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        setGuildInflation(guildId, true, 0.15);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- INFLATION UI: MODAL FOR CUSTOM RATE ---
+      if (customId === 'inflation_btn_custom') {
+        const current = getGuildInflation(guildId);
+        const modal = new ModalBuilder()
+          .setCustomId('modal_inflation_custom')
+          .setTitle('🔥 Set Custom Point Decay %');
+
+        const rateInput = new TextInputBuilder()
+          .setCustomId('input_inflation_custom_rate')
+          .setLabel('Weekly Point Burn % (e.g. 7 for 7%, 0 to off)')
+          .setValue(current.enabled ? String(Math.round(current.rate * 100)) : '5')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(rateInput));
+        return interaction.showModal(modal);
+      }
+
+      // --- NAVIGATION: BACK TO MAIN ADMIN PANEL ---
+      if (customId === 'admin_back_to_main') {
+        if (!isAuthorizedAdmin(interaction)) return;
+        const guild = interaction.guild || (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        if (!guild) {
+          return interaction.reply({ content: 'Server not found.', ephemeral: true });
+        }
+        const payload = await getAdminPanelPayload(guild);
+        return interaction.update(payload);
+      }
+
+      // --- HUB UI: OPEN ADMIN PANEL (ZERO SLASH COMMAND) ---
+      if (customId === 'hub_open_admin') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ Only Administrators or Server Managers can open the Admin Control Center.',
+            ephemeral: true,
+          });
+        }
+        const guild = interaction.guild || (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        if (!guild) {
+          return interaction.reply({ content: 'Server not found.', ephemeral: true });
+        }
+        const payload = await getAdminPanelPayload(guild);
+        return interaction.reply({ ...payload, ephemeral: true });
+      }
+
+      // --- ADMIN: 5-TIER MILESTONE ROLES ---
+      if (customId === 'admin_tier_roles') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_tier_roles')
+          .setTitle('🎖️ Configure 5-Tier Level Roles');
+
+        const t1Input = new TextInputBuilder()
+          .setCustomId('input_tier_1')
+          .setLabel('Level 5 Role ID or Name')
+          .setPlaceholder('e.g. Pioneer Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const t2Input = new TextInputBuilder()
+          .setCustomId('input_tier_2')
+          .setLabel('Level 10 Role ID or Name')
+          .setPlaceholder('e.g. Veteran Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const t3Input = new TextInputBuilder()
+          .setCustomId('input_tier_3')
+          .setLabel('Level 25 Role ID or Name')
+          .setPlaceholder('e.g. Champion Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const t4Input = new TextInputBuilder()
+          .setCustomId('input_tier_4')
+          .setLabel('Level 50 Role ID or Name')
+          .setPlaceholder('e.g. Master Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const t5Input = new TextInputBuilder()
+          .setCustomId('input_tier_5')
+          .setLabel('Level 100 Role ID or Name')
+          .setPlaceholder('e.g. Immortal Apex Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(t1Input),
+          new ActionRowBuilder().addComponents(t2Input),
+          new ActionRowBuilder().addComponents(t3Input),
+          new ActionRowBuilder().addComponents(t4Input),
+          new ActionRowBuilder().addComponents(t5Input)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: ANNOUNCEMENT REACTIONS REWARD CONFIG ---
+      if (customId === 'admin_announcement_reactions') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_announcement_reactions')
+          .setTitle('⚡ Announcement Reactions Config');
+
+        const channelInput = new TextInputBuilder()
+          .setCustomId('input_react_channel')
+          .setLabel('Announcement Channel ID or Name')
+          .setValue('announcements')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const pointsInput = new TextInputBuilder()
+          .setCustomId('input_react_points')
+          .setLabel('CP Reward per Reaction')
+          .setValue('5')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(channelInput),
+          new ActionRowBuilder().addComponents(pointsInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: TOP ENGAGERS LEADERBOARD ---
+      if (customId === 'admin_top_engagers') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: topUsers } = await supabase
+          .from('users')
+          .select('discord_id, total_points, xp, level')
+          .eq('guild_id', guildId)
+          .order('total_points', { ascending: false })
+          .limit(10);
+
+        const medals = ['🥇', '🥈', '🥉'];
+        const list = (topUsers || []).map(
+          (u, i) => `${medals[i] || `**#${i + 1}**`} <@${u.discord_id}> • **${Number(u.total_points || 0).toLocaleString()} CP** • Level ${u.level || 1}`
+        ).join('\n\n') || '*No engagers recorded yet.*';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('📊 Top Social Engagers • Cohesion Analytics')
+          .setDescription(list)
+          .setFooter({ text: 'Aggregated across all verified social quests' });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // --- ADMIN: SEASON LEADERBOARD RESET / WIPE ---
+      if (customId === 'admin_season_wipe') {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_season_wipe')
+          .setTitle('⚠️ Reset Leaderboard Season');
+
+        const confirmInput = new TextInputBuilder()
+          .setCustomId('input_wipe_confirm')
+          .setLabel('Type "CONFIRM RESET" to proceed')
+          .setPlaceholder('CONFIRM RESET')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(confirmInput));
         return interaction.showModal(modal);
       }
 
@@ -1446,7 +1978,7 @@ export default {
 
         const costInput = new TextInputBuilder()
           .setCustomId('input_shop_cost')
-          .setLabel('Price in Quest Points (QP)')
+          .setLabel('Price in Cohesion Points (CP)')
           .setPlaceholder('e.g. 150')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -1527,7 +2059,7 @@ export default {
             `Use this ledger to verify any member purchase in real time:\n\n` +
             purchaseRows.join('\n\n')
           )
-          .setFooter({ text: 'Questify Economy & Marketplace Audit' })
+          .setFooter({ text: 'Cohesion Economy & Marketplace Audit' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });
@@ -1591,7 +2123,7 @@ export default {
             `• **Available Voice Channels:** **${voiceChannels.length}**\n\n` +
             `*Selecting an option will immediately open the reward configuration modal.*`
           )
-          .setFooter({ text: 'Questify Voice Engagement Tracking' });
+          .setFooter({ text: 'Cohesion Voice Engagement Tracking' });
 
         return interaction.editReply({ embeds: [embed], components: [row] });
       }
@@ -1610,7 +2142,7 @@ export default {
 
         const pointsInput = new TextInputBuilder()
           .setCustomId('input_reward_points')
-          .setLabel('Quest Points (QP) to Add / Deduct')
+          .setLabel('Cohesion Points (CP) to Add / Deduct')
           .setValue('100')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -1653,7 +2185,7 @@ export default {
 
         const startBidInput = new TextInputBuilder()
           .setCustomId('input_auction_start_bid')
-          .setLabel('Starting Bid (in Quest Points)')
+          .setLabel('Starting Bid (in Cohesion Points - CP)')
           .setValue('100')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -1748,10 +2280,312 @@ export default {
 
         return interaction.editReply({
           content:
-            `📊 **Live Questify Server Stats:**\n` +
+            `📊 **Live Cohesion Server Stats:**\n` +
             `• Tracked Members: **${totalMembersTracked || 0}**\n` +
             `• Active Tweet Quests: **${activeQuestsCount || 0}**\n` +
             `• Active Raffles: **${activeRafflesCount || 0}**`,
+        });
+      }
+
+      // --- ADMIN: SERVER OPERATING MODE & MODULE MANAGER ---
+      if (customId === 'admin_server_mode') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to modify server operating modes.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const payload = buildServerModePayload(guildId, interaction.guild?.name);
+        return interaction.editReply(payload);
+      }
+
+      // --- ADMIN: TOGGLE SPENDABLE CURRENCY (POINTS vs XP) ---
+      if (customId === 'btn_toggle_currency') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to toggle currency.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferUpdate();
+        const currentCurrency = getCurrencyType(guildId);
+        const newCurrency = currentCurrency === 'xp' ? 'points' : 'xp';
+        setGuildCurrency(guildId, newCurrency);
+
+        const payload = buildServerModePayload(guildId, interaction.guild?.name);
+        return interaction.editReply(payload);
+      }
+
+      // --- ADMIN: SHOW CUSTOM MODULES SELECTOR ---
+      if (customId === 'btn_config_custom_modules') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to customize modules.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildCustomModulesSelector(guildId);
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: MEMBER ANALYTICS & CSV EXPORT DASHBOARD ---
+      if (customId === 'admin_export_users') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to export user data.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildExportDashboard(guildId, interaction.guild?.name);
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: FULL SERVER CSV EXPORT ---
+      if (customId === 'btn_export_all') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to export user data.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: users, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .order('total_points', { ascending: false });
+
+        if (error || !users || users.length === 0) {
+          return interaction.editReply({
+            content: '⚠️ No user profiles found for this server or database query failed.',
+          });
+        }
+
+        // Enrich with live message counts if available
+        const enrichedUsers = users.map(u => ({
+          ...u,
+          messages_sent: Math.max(Number(u.messages_sent || 0), getUserMessageCount(guildId, u.discord_id)),
+        }));
+
+        const attachment = generateUsersCsvAttachment(
+          enrichedUsers,
+          `cohesion_all_members_${guildId}_${new Date().toISOString().slice(0, 10)}.csv`
+        );
+
+        return interaction.editReply({
+          content: `✅ **Full Server Export Complete!** Found **${users.length}** member records with message counts, levels, XP, and wallets.`,
+          files: [attachment],
+        });
+      }
+
+      // --- ADMIN: PROMPT DATE RANGE FILTER MODAL ---
+      if (customId === 'btn_export_daterange') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to export user data.',
+            ephemeral: true,
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId('modal_export_daterange')
+          .setTitle('📅 Filter Member Data by Date');
+
+        const startDateInput = new TextInputBuilder()
+          .setCustomId('input_export_start_date')
+          .setLabel('Start Date (YYYY-MM-DD)')
+          .setPlaceholder('e.g. 2026-09-01')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(10)
+          .setRequired(true);
+
+        const endDateInput = new TextInputBuilder()
+          .setCustomId('input_export_end_date')
+          .setLabel('End Date (YYYY-MM-DD)')
+          .setPlaceholder('e.g. 2026-09-20')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(10)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(startDateInput),
+          new ActionRowBuilder().addComponents(endDateInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: PROMPT CHANNEL SELECTOR ---
+      if (customId === 'btn_export_channel_prompt') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to perform channel audits.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildChannelSelector();
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: PROMPT SINGLE USER SELECTOR ---
+      if (customId === 'btn_export_single_user_prompt') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to inspect member records.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildUserSelector();
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: DOWNLOAD SINGLE USER CSV ---
+      if (customId.startsWith('btn_download_user_csv_')) {
+        const targetUserId = customId.replace('btn_download_user_csv_', '');
+        await interaction.deferReply({ ephemeral: true });
+
+        const { data: userRecord } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', targetUserId)
+          .maybeSingle();
+
+        const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => null);
+        const liveMsgCount = getUserMessageCount(guildId, targetUserId);
+        const totalMessages = Math.max(Number(userRecord?.messages_sent || 0), liveMsgCount);
+
+        const singleUserData = [{
+          discord_id: targetUserId,
+          username: targetUser?.tag || targetUser?.username || userRecord?.username || 'Member',
+          messages_sent: totalMessages,
+          level: userRecord?.level || 1,
+          xp: userRecord?.xp || 0,
+          total_points: userRecord?.total_points || 0,
+          wallet_address: userRecord?.wallet_address || userRecord?.evm_address || '',
+          twitter_handle: userRecord?.twitter_handle || '',
+          created_at: userRecord?.created_at || new Date().toISOString(),
+        }];
+
+        const attachment = generateUsersCsvAttachment(
+          singleUserData,
+          `member_${targetUser?.username || targetUserId}_dossier.csv`
+        );
+
+        return interaction.editReply({
+          content: `✅ **Single Member CSV Ready!** Activity data for <@${targetUserId}>:`,
+          files: [attachment],
+        });
+      }
+
+      // --- ADMIN: AUTOMOD & SECURITY SHIELD DASHBOARD ---
+      if (customId === 'admin_automod') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure AutoMod Shield.',
+            ephemeral: true,
+          });
+        }
+
+        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: AUTOMOD TOGGLE ANTI-LINK ---
+      if (customId === 'automod_toggle_link') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_link: !settings.anti_link });
+        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- ADMIN: AUTOMOD TOGGLE ANTI-INVITE ---
+      if (customId === 'automod_toggle_invite') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_invite: !settings.anti_invite });
+        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- ADMIN: AUTOMOD TOGGLE ANTI-SPAM ---
+      if (customId === 'automod_toggle_spam') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_spam: !settings.anti_spam });
+        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
+        return interaction.update(payload);
+      }
+
+      // --- ADMIN: AUTOMOD OPEN PUNISHMENT SELECTOR ---
+      if (customId === 'automod_btn_punishment') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const settings = getAutoModSettings(guildId);
+        const payload = buildPunishmentSelector(settings.punishment_mode);
+        return interaction.reply(payload);
+      }
+
+      // --- ADMIN: AUTOMOD OPEN BANNED WORDS MODAL ---
+      if (customId === 'automod_btn_words') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const settings = getAutoModSettings(guildId);
+        const modal = buildBannedWordsModal(settings.banned_words);
+        return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: AUTOMOD RESET MEMBER STRIKES ---
+      if (customId === 'automod_btn_reset_strikes') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
+            ephemeral: true,
+          });
+        }
+
+        const cleared = resetGuildStrikes(guildId);
+        return interaction.reply({
+          content: `🔄 **AutoMod Strikes Reset!** Cleared active strikes across all members in this server.`,
+          ephemeral: true,
         });
       }
 
@@ -1811,9 +2645,9 @@ export default {
           .setColor(0x06d6a0)
           .setTitle('🎁 Daily Reward Claimed!')
           .setDescription(
-            `You received **+${dailyReward} Quest Points** today!\n\n` +
+            `You received **+${dailyReward} Cohesion Points (CP)** today!\n\n` +
             `${streakBadge}\n` +
-            `💰 **Total Balance:** ${newPoints.toLocaleString()} QP`
+            `💰 **Total Balance:** ${newPoints.toLocaleString()} CP`
           )
           .setFooter({ text: 'Come back every 24 hours to keep your streak alive!' });
 
@@ -1844,7 +2678,7 @@ export default {
           .setColor(0x8338ec)
           .setTitle(`🏆 ${interaction.guild?.name || 'Server'} Leaderboard`)
           .setDescription(list)
-          .setFooter({ text: 'Questify Gamification Leaderboard' });
+          .setFooter({ text: 'Cohesion Gamification Leaderboard' });
 
         return interaction.editReply({ embeds: [embed] });
       }
@@ -1867,17 +2701,20 @@ export default {
           return interaction.editReply({ content: '🎁 There are no active raffles right now. Stay tuned!' });
         }
 
+        const currType = getCurrencyType(guildId);
+        const currLabel = currType === 'xp' ? 'XP' : 'CP';
+
         const options = raffles.slice(0, 25).map(r =>
           new StringSelectMenuOptionBuilder()
             .setLabel(r.prize.slice(0, 50))
-            .setDescription(`Cost: ${r.cost} QP per ticket • Ends soon!`)
+            .setDescription(`Cost: ${r.cost} ${currLabel} per ticket • Ends soon!`)
             .setValue(r.raffle_id)
             .setEmoji('🎟️')
         );
 
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId('select_enter_raffle')
-          .setPlaceholder('Select a raffle to enter (1 Ticket)')
+          .setPlaceholder(`Select a raffle to enter (1 Ticket) [${currLabel}]`)
           .addOptions(options);
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -1886,7 +2723,7 @@ export default {
           .map(
             (r, i) =>
               `**${i + 1}. ${r.prize}**\n` +
-              `↳ Cost: **${r.cost} QP** • Ends: <t:${Math.floor(new Date(r.end_time).getTime() / 1000)}:R>`
+              `↳ Cost: **${r.cost} ${currLabel}** • Ends: <t:${Math.floor(new Date(r.end_time).getTime() / 1000)}:R>`
           )
           .join('\n\n');
 
@@ -1901,6 +2738,9 @@ export default {
       // --- H. MEMBER HUB: MARKETPLACE ---
       if (customId === 'hub_marketplace') {
         await interaction.deferReply({ ephemeral: true });
+
+        const currType = getCurrencyType(guildId);
+        const currLabel = currType === 'xp' ? 'XP' : 'CP';
 
         const { data: items } = await supabase
           .from('marketplace_items')
@@ -1918,14 +2758,14 @@ export default {
         const options = items.slice(0, 25).map(item =>
           new StringSelectMenuOptionBuilder()
             .setLabel(item.title.slice(0, 50))
-            .setDescription(`Cost: ${item.cost} QP • ${item.stock === -1 ? 'Unlimited' : `${item.stock} in stock`}`)
+            .setDescription(`Cost: ${item.cost} ${currLabel} • ${item.stock === -1 ? 'Unlimited' : `${item.stock} in stock`}`)
             .setValue(item.item_id)
             .setEmoji('🛍️')
         );
 
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId('select_buy_item')
-          .setPlaceholder('Choose an item to purchase with your QP')
+          .setPlaceholder(`Choose an item to purchase with your ${currLabel}`)
           .addOptions(options);
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -1940,7 +2780,7 @@ export default {
         const itemListText = items
           .map(
             (it, i) =>
-              `**${i + 1}. ${it.title}** — **${it.cost} QP**\n` +
+              `**${i + 1}. ${it.title}** — **${it.cost} ${currLabel}**\n` +
               `↳ ${it.description || 'No description'} • Stock: ${it.stock === -1 ? 'Unlimited' : it.stock}`
           )
           .join('\n\n');
@@ -1949,7 +2789,9 @@ export default {
           .setColor(0xffb703)
           .setTitle(`🛒 ${interaction.guild?.name || 'Server'} • Community Marketplace`)
           .setDescription(`${itemListText}\n\n*Select an item below to purchase, or view your past receipts!*`)
-          .setFooter({ text: 'Quest Points are automatically deducted upon purchase' });
+          .setFooter({
+            text: `${currType === 'xp' ? 'Experience Points (XP)' : 'Cohesion Points (CP)'} are automatically deducted upon purchase`,
+          });
 
         return interaction.editReply({ embeds: [embed], components: [row, btnRow] });
       }
@@ -2033,7 +2875,7 @@ export default {
             `${auctionListText}\n\n` +
             `*Select an auction below to view full details or place a bid:*`
           )
-          .setFooter({ text: 'Questify Live Escrow Auctions' });
+          .setFooter({ text: 'Cohesion Live Escrow Auctions' });
 
         const options = auctions.slice(0, 25).map((a, i) =>
           new StringSelectMenuOptionBuilder()
@@ -2247,16 +3089,170 @@ export default {
             .setTitle('✅ Engagement Verified!')
             .setDescription(
               `You successfully verified your **${actionLabel}** on X!\n\n` +
-              `🪙 **+${pointsReward} Quest Points** have been added to your balance.\n` +
-              `💰 Total Points: **${newPoints.toLocaleString()} QP**`
+              `🪙 **+${pointsReward} Cohesion Points (CP)** have been added to your balance.\n` +
+              `💰 Total Balance: **${newPoints.toLocaleString()} CP**`
             )
-            .setFooter({ text: 'Questify Engagement Engine' });
+            .setFooter({ text: 'Cohesion Engagement Engine' });
 
           return interaction.editReply({ embeds: [successEmbed] });
         } catch (err) {
           console.error('[BUTTON ERROR]:', err);
           return interaction.editReply({ content: '❌ An error occurred during verification.' });
         }
+      }
+
+      // --- MULTI-PLATFORM ENGAGEMENT VERIFICATION (CMC, YouTube, TikTok) ---
+      if (customId.startsWith('verify_multi_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const parts = customId.split('_'); // ['verify', 'multi', platform, points]
+        const platform = parts[2] || 'platform';
+        const pointsReward = parseInt(parts[3], 10) || 50;
+
+        // Check if user has linked an account for this platform
+        const { data: userIntegration } = await supabase
+          .from('user_integrations')
+          .select('*')
+          .eq('discord_id', discordId)
+          .eq('provider', platform)
+          .maybeSingle();
+
+        // Check if already claimed this quest
+        const claimKey = `multi_claim_${interaction.message?.id || 'post'}_${discordId}`;
+        const { data: existingClaim } = await supabase
+          .from('quest_submissions')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .eq('url', claimKey)
+          .maybeSingle();
+
+        if (existingClaim) {
+          return interaction.editReply({
+            content: '⚠️ You have already verified and claimed points for this quest!',
+          });
+        }
+
+        // Fetch user record
+        const { data: userRecord } = await supabase
+          .from('users')
+          .select('total_points, xp, level')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .maybeSingle();
+
+        const currentPoints = Number(userRecord?.total_points || 0);
+        const newPoints = currentPoints + pointsReward;
+
+        await supabase.from('users').upsert(
+          {
+            guild_id: guildId,
+            discord_id: discordId,
+            total_points: newPoints,
+          },
+          { onConflict: 'guild_id,discord_id' }
+        );
+
+        // Record claim
+        await supabase.from('quest_submissions').insert({
+          guild_id: guildId,
+          discord_id: discordId,
+          url: claimKey,
+          status: 'verified',
+          points_awarded: pointsReward,
+        });
+
+        // Log to #cohesion-logs
+        await logActivity(interaction.guild, {
+          title: '🌐 Multi-Platform Quest Verified',
+          description: `<@${discordId}> verified engagement on **${platform.toUpperCase()}** and earned **+${pointsReward} CP**!`,
+          color: 0x06d6a0,
+          userId: discordId,
+        });
+
+        const successEmbed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('✅ Platform Engagement Verified!')
+          .setDescription(
+            `You successfully verified your actions on **${platform.toUpperCase()}**!\n\n` +
+            `🪙 **+${pointsReward} Cohesion Points (CP)** have been added to your balance.\n` +
+            `💰 Total Balance: **${newPoints.toLocaleString()} CP**`
+          )
+          .setFooter({ text: 'Cohesion Multi-Platform Engine' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [successEmbed] });
+      }
+
+      // --- WEBSITE VISIT QUEST CLAIM ---
+      if (customId.startsWith('claim_visit_')) {
+        await interaction.deferReply({ ephemeral: true });
+        const parts = customId.split('_'); // ['claim', 'visit', questId, points, seconds]
+        const questId = parts[2] || 'visit';
+        const pointsReward = parseInt(parts[3], 10) || 35;
+
+        // Anti-cheat: 1-claim per user per quest
+        const claimKey = `visit_claim_${questId}_${discordId}`;
+        const { data: existingClaim } = await supabase
+          .from('quest_submissions')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .eq('url', claimKey)
+          .maybeSingle();
+
+        if (existingClaim) {
+          return interaction.editReply({
+            content: '⚠️ You have already claimed the points for visiting this website!',
+          });
+        }
+
+        // Fetch user record
+        const { data: userRecord } = await supabase
+          .from('users')
+          .select('total_points')
+          .eq('guild_id', guildId)
+          .eq('discord_id', discordId)
+          .maybeSingle();
+
+        const currentPoints = Number(userRecord?.total_points || 0);
+        const newPoints = currentPoints + pointsReward;
+
+        await supabase.from('users').upsert(
+          {
+            guild_id: guildId,
+            discord_id: discordId,
+            total_points: newPoints,
+          },
+          { onConflict: 'guild_id,discord_id' }
+        );
+
+        await supabase.from('quest_submissions').insert({
+          guild_id: guildId,
+          discord_id: discordId,
+          url: claimKey,
+          status: 'verified',
+          points_awarded: pointsReward,
+        });
+
+        await logActivity(interaction.guild, {
+          title: '🌐 Website Visit Quest Claimed',
+          description: `<@${discordId}> completed website visit quest and earned **+${pointsReward} CP**!`,
+          color: 0x06d6a0,
+          userId: discordId,
+        });
+
+        const successEmbed = new EmbedBuilder()
+          .setColor(0x06d6a0)
+          .setTitle('✅ Website Visit Verified!')
+          .setDescription(
+            `Thank you for exploring the site!\n\n` +
+            `🪙 **+${pointsReward} Cohesion Points (CP)** have been credited to your balance.\n` +
+            `💰 Total Balance: **${newPoints.toLocaleString()} CP**`
+          )
+          .setFooter({ text: 'Cohesion Visit Engine' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [successEmbed] });
       }
 
       // --- L. COMMUNITY QUIZ ANSWER SUBMISSION ---
@@ -2366,11 +3362,11 @@ export default {
               `🎯 **Awesome job!** You chose the right answer:\n` +
               `**${quiz.options[choiceIndex]}**\n\n` +
               `🪙 **Rewards Earned:**\n` +
-              `• **+${pointsAwarded} Quest Points**\n` +
+              `• **+${pointsAwarded} Cohesion Points (CP)**\n` +
               `• **+${xpAwarded} XP**\n\n` +
-              `💰 **Updated Balance:** ${newPoints.toLocaleString()} QP (Level ${newLevel})`
+              `💰 **Updated Balance:** ${newPoints.toLocaleString()} CP (Level ${newLevel})`
             )
-            .setFooter({ text: 'Questify Gamification Engine' });
+            .setFooter({ text: 'Cohesion Gamification Engine' });
 
           return interaction.editReply({ embeds: [winEmbed] });
         } else {
@@ -2381,7 +3377,7 @@ export default {
               `You selected: **${quiz.options[choiceIndex]}**\n\n` +
               `Better luck next time! Stay tuned to the community channels for the next trivia drop.`
             )
-            .setFooter({ text: 'Questify Trivia System' });
+            .setFooter({ text: 'Cohesion Trivia System' });
 
           return interaction.editReply({ embeds: [lossEmbed] });
         }
@@ -2411,10 +3407,10 @@ export default {
             .setDescription(
               `You selected: **${result.chosenOption}**\n\n` +
               `⚡ **Speed:** Answered in **${result.elapsedSec}s**!\n` +
-              `🪙 **Points Awarded:** **+${result.pointsAwarded} QP** (Speed-Bonus Applied)\n` +
-              `🏆 **Total Tournament Score:** **${result.totalScore.toLocaleString()} QP**`
+              `🪙 **Points Awarded:** **+${result.pointsAwarded} CP** (Speed-Bonus Applied)\n` +
+              `🏆 **Total Tournament Score:** **${result.totalScore.toLocaleString()} CP**`
             )
-            .setFooter({ text: 'Questify Live Tournament' });
+            .setFooter({ text: 'Cohesion Live Tournament' });
 
           return interaction.editReply({ embeds: [winEmbed] });
         } else {
@@ -2425,7 +3421,7 @@ export default {
               `You selected: **${result.chosenOption}**\n\n` +
               `0 points awarded for this round. Keep your eyes on the channel for the next question!`
             )
-            .setFooter({ text: 'Questify Live Tournament' });
+            .setFooter({ text: 'Cohesion Live Tournament' });
 
           return interaction.editReply({ embeds: [lossEmbed] });
         }
@@ -2461,8 +3457,8 @@ export default {
 
         let rewardText = '';
         if (result.pointsAwarded > 0 || result.xpAwarded > 0) {
-          rewardText = `\n\n🪙 **Rewards Earned:** +${result.pointsAwarded} QP & +${result.xpAwarded} XP\n` +
-            `💰 **Current Balance:** ${result.newPoints.toLocaleString()} QP (Level ${result.newLevel})`;
+          rewardText = `\n\n🪙 **Rewards Earned:** +${result.pointsAwarded} CP & +${result.xpAwarded} XP\n` +
+            `💰 **Current Balance:** ${result.newPoints.toLocaleString()} CP (Level ${result.newLevel})`;
         }
 
         const voteEmbed = new EmbedBuilder()
@@ -2472,7 +3468,7 @@ export default {
             `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
             `Thank you for participating in the community vote!`
           )
-          .setFooter({ text: 'Questify Community Polls' });
+          .setFooter({ text: 'Cohesion Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
       }
@@ -2571,7 +3567,7 @@ export default {
 
         const amountInput = new TextInputBuilder()
           .setCustomId('input_bet_amount')
-          .setLabel('Bet Amount in Quest Points (QP)')
+          .setLabel('Bet Amount in Cohesion Points (CP)')
           .setPlaceholder('e.g. 50')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -2636,11 +3632,11 @@ export default {
             `• Custom Emoji: ${userCosmetics.battle_emoji || '*None*'}\n` +
             `• Hex Accent: ${userCosmetics.battle_name_color || '*Default*'}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `**Tier 1 (Common - 150 QP):** Standard Combat Emojis (⚔️, 🛡️, 🎯, 🏹)\n` +
-            `**Tier 2 (Rare - 350 QP):** Luminescent Hex Bracket Tags (⟦MINT⟧, ⟦ROSE⟧, ⟦GOLD⟧, ⟦FROST⟧)\n` +
-            `**Tier 3 (Epic - 750 QP):** Elite Animated Crests (🔥, 👑, ⚡, 💀, 💎)\n` +
-            `**Tier 4 (Mythic - 1,500 QP):** Legendary Overriding Titles ([Warlord], [GOD-TIER], [Immortal], [Apex])\n\n` +
-            `*Select an item below to purchase with your Quest Points!*`
+            `**Tier 1 (Common - 150 CP):** Standard Combat Emojis (⚔️, 🛡️, 🎯, 🏹)\n` +
+            `**Tier 2 (Rare - 350 CP):** Luminescent Hex Bracket Tags (⟦MINT⟧, ⟦ROSE⟧, ⟦GOLD⟧, ⟦FROST⟧)\n` +
+            `**Tier 3 (Epic - 750 CP):** Elite Animated Crests (🔥, 👑, ⚡, 💀, 💎)\n` +
+            `**Tier 4 (Mythic - 1,500 CP):** Legendary Overriding Titles ([Warlord], [GOD-TIER], [Immortal], [Apex])\n\n` +
+            `*Select an item below to purchase with your Cohesion Points (CP)!*`
           )
           .setFooter({ text: 'Points are automatically deducted from your server profile' });
 
@@ -2744,6 +3740,7 @@ export default {
       // Security Guard: Check admin permissions for any admin modal form
       const adminModals = [
         'modal_post_tweet',
+        'modal_post_multi',
         'modal_create_raffle',
         'modal_create_auction',
         'modal_add_shop',
@@ -2753,6 +3750,13 @@ export default {
         'modal_setup_live_quiz',
         'modal_create_poll',
         'modal_create_battle',
+        'modal_track_twitter',
+        'modal_economy_settings',
+        'modal_tier_roles',
+        'modal_announcement_reactions',
+        'modal_season_wipe',
+        'modal_export_daterange',
+        'modal_automod_words',
       ];
       if (
         adminModals.includes(modalId) ||
@@ -3035,7 +4039,7 @@ export default {
             .setURL(cleanUrl)
             .setDescription(tweetBody)
             .setFooter({
-              text: 'Powered by Questify Gamification',
+              text: 'Powered by Cohesion Gamification',
               iconURL: interaction.client.user.displayAvatarURL(),
             })
             .setTimestamp();
@@ -3076,7 +4080,7 @@ export default {
         );
 
         return interaction.editReply({
-          content: `✅ Successfully broadcasted new Questify tweet card to this channel! (Tweet ID: \`${tweetId}\`)`,
+          content: `✅ Successfully broadcasted new Cohesion tweet card to this channel! (Tweet ID: \`${tweetId}\`)`,
         });
       }
 
@@ -3111,10 +4115,10 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0x06d6a0)
-          .setTitle('🎟️ New Questify Raffle Launched!')
+          .setTitle('🎟️ New Cohesion Raffle Launched!')
           .setDescription(
             `**Prize**: ${prize}\n` +
-            `**Ticket Cost**: ${cost} 🪙 Quest Points\n` +
+            `**Ticket Cost**: ${cost} 🪙 Cohesion Points (CP)\n` +
             `**Ends**: <t:${Math.floor(new Date(endTime).getTime() / 1000)}:R>`
           )
           .setFooter({ text: `Raffle ID: ${raffle.raffle_id}` })
@@ -3151,18 +4155,20 @@ export default {
         });
       }
 
-      // --- MODAL: LINK WALLET ---
+      // --- MODAL: LINK WALLET (12-CHAIN AUTO-DETECTION) ---
       if (modalId === 'modal_link_wallet') {
         await interaction.deferReply({ ephemeral: true });
 
         const address = interaction.fields.getTextInputValue('input_wallet_address').trim();
-        const chain = interaction.fields.getTextInputValue('input_wallet_chain')?.trim() || 'EVM';
+        const userSpecifiedChain = interaction.fields.getTextInputValue('input_wallet_chain')?.trim();
+        const detectedChain = detectChain(address);
+        const finalChain = detectedChain || userSpecifiedChain || 'ETH';
 
         await supabase.from('user_integrations').upsert(
           {
             discord_id: discordId,
             provider: 'wallet',
-            provider_user_id: chain,
+            provider_user_id: finalChain,
             provider_username: address,
             updated_at: new Date().toISOString(),
           },
@@ -3172,9 +4178,297 @@ export default {
         return interaction.editReply({
           content:
             `✅ **Payout Wallet Linked Successfully!**\n\n` +
-            `• Address: \`${address}\`\n` +
-            `• Network: **${chain}**\n\n` +
-            `When you win raffles for USDC, USDT, or crypto, your prizes will be routed here!`,
+            `• **Address:** \`${address}\`\n` +
+            `• **Detected Network:** **${finalChain}** (Auto-detected from 12 supported chains)\n\n` +
+            `When you win crypto raffles or auctions, your rewards will automatically route here!`,
+        });
+      }
+
+      // --- MODAL: CONNECT SOCIALS ---
+      if (modalId === 'modal_connect_socials') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const cmc = interaction.fields.getTextInputValue('input_cmc')?.trim();
+        const yt = interaction.fields.getTextInputValue('input_yt')?.trim();
+        const tiktok = interaction.fields.getTextInputValue('input_tiktok')?.trim();
+        const tg = interaction.fields.getTextInputValue('input_telegram')?.trim();
+
+        const updates = [];
+        if (cmc) updates.push({ discord_id: discordId, provider: 'coinmarketcap', provider_username: cmc.replace('@', '') });
+        if (yt) updates.push({ discord_id: discordId, provider: 'youtube', provider_username: yt.replace('@', '') });
+        if (tiktok) updates.push({ discord_id: discordId, provider: 'tiktok', provider_username: tiktok.replace('@', '') });
+        if (tg) updates.push({ discord_id: discordId, provider: 'telegram', provider_username: tg.replace('@', '') });
+
+        for (const item of updates) {
+          await supabase.from('user_integrations').upsert(
+            { ...item, updated_at: new Date().toISOString() },
+            { onConflict: 'discord_id,provider' }
+          );
+        }
+
+        return interaction.editReply({
+          content: `✅ **Social Profiles Saved!**\n\n` +
+            (cmc ? `• CoinMarketCap: **@${cmc.replace('@', '')}**\n` : '') +
+            (yt ? `• YouTube: **@${yt.replace('@', '')}**\n` : '') +
+            (tiktok ? `• TikTok: **@${tiktok.replace('@', '')}**\n` : '') +
+            (tg ? `• Telegram: **@${tg.replace('@', '')}**\n` : '') +
+            `\nYou are now ready to verify CoinMarketCap, YouTube, and TikTok quests!`,
+        });
+      }
+
+      // --- MODAL: REDEEM REFERRAL CODE ---
+      if (modalId === 'modal_referral_redeem') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const code = interaction.fields.getTextInputValue('input_ref_code').trim().toUpperCase();
+        const selfCode = `COH-${discordId.slice(-5)}`;
+
+        if (code === selfCode) {
+          return interaction.editReply({ content: '❌ You cannot redeem your own referral code!' });
+        }
+
+        // Check if already redeemed a referral
+        const { data: existing } = await supabase
+          .from('user_integrations')
+          .select('*')
+          .eq('discord_id', discordId)
+          .eq('provider', 'referral_redeemed')
+          .maybeSingle();
+
+        if (existing) {
+          return interaction.editReply({ content: '❌ You have already redeemed a referral code.' });
+        }
+
+        // Record redemption
+        await supabase.from('user_integrations').insert([
+          { discord_id: discordId, provider: 'referral_redeemed', provider_username: code },
+          { discord_id: discordId, provider: 'referral_by', provider_username: code }
+        ]);
+
+        // Award bonus to current user
+        const { data: userRec } = await supabase.from('users').select('total_points').eq('guild_id', guildId).eq('discord_id', discordId).maybeSingle();
+        const newBalance = (userRec?.total_points || 0) + 50;
+        await supabase.from('users').upsert({ guild_id: guildId, discord_id: discordId, total_points: newBalance });
+
+        return interaction.editReply({
+          content: `🎉 **Referral Code Redeemed!** You received **+50 Cohesion Points (CP)**!`,
+        });
+      }
+
+      // --- MODAL: PROMOTE MY TWEET (COMMUNITY RAID) ---
+      if (modalId === 'modal_promote_tweet') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const tweetUrl = interaction.fields.getTextInputValue('input_user_tweet_url').trim();
+        const note = interaction.fields.getTextInputValue('input_user_tweet_note')?.trim() || 'Community Member Raid';
+
+        const parsed = parseTweetUrl(tweetUrl);
+        if (!parsed) {
+          return interaction.editReply({ content: '❌ Invalid Twitter/X URL. Please provide a valid tweet link.' });
+        }
+
+        // Check user balance (100 CP required)
+        const { data: userRec } = await supabase.from('users').select('total_points').eq('guild_id', guildId).eq('discord_id', discordId).maybeSingle();
+        const balance = Number(userRec?.total_points || 0);
+
+        if (balance < 100) {
+          return interaction.editReply({ content: `❌ You need at least **100 CP** to promote your tweet. Your balance: **${balance} CP**.` });
+        }
+
+        // Deduct 100 CP
+        await supabase.from('users').update({ total_points: balance - 100 }).eq('guild_id', guildId).eq('discord_id', discordId);
+
+        // Broadcast to #cohesion-feed
+        const feedChannel = interaction.guild.channels.cache.find(
+          (c) => c.isTextBased() && (c.name.includes('cohesion-feed') || c.name.includes('quest-feed') || c.name.includes('engage'))
+        );
+
+        if (feedChannel) {
+          const embed = new EmbedBuilder()
+            .setColor(0x1da1f2)
+            .setTitle('🚀 Community Member Tweet Raid!')
+            .setDescription(
+              `Promoted by <@${discordId}>:\n${parsed.cleanUrl}\n\n` +
+              `📌 *${note}*\n\n` +
+              `Like, Retweet, and Comment to earn **+25 CP** each!`
+            )
+            .setFooter({ text: 'Cohesion Community Raid Promotion' })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`verify_like_${parsed.tweetId}`).setLabel('Like ❤️ (+25 CP)').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`verify_rt_${parsed.tweetId}`).setLabel('Retweet 🔁 (+25 CP)').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setLabel('View on X ↗️').setStyle(ButtonStyle.Link).setURL(parsed.cleanUrl)
+          );
+
+          await feedChannel.send({ embeds: [embed], components: [row] }).catch(() => null);
+        }
+
+        return interaction.editReply({
+          content: `✅ **Tweet Promoted Successfully!** 100 CP was deducted, and your tweet was broadcasted to the community feed!`,
+        });
+      }
+
+      // --- MODAL: ADMIN MULTI-PLATFORM QUEST LAUNCHER ---
+      if (modalId === 'modal_post_multi') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const platform = interaction.fields.getTextInputValue('input_platform_type').trim().toLowerCase();
+        const url = interaction.fields.getTextInputValue('input_platform_url').trim();
+        const points = parseInt(interaction.fields.getTextInputValue('input_platform_points'), 10) || 50;
+        const actions = interaction.fields.getTextInputValue('input_platform_actions').trim();
+
+        const feedChannel = interaction.guild.channels.cache.find(
+          (c) => c.isTextBased() && (c.name.includes('cohesion-feed') || c.name.includes('quest-feed') || c.name.includes('engage'))
+        ) || interaction.channel;
+
+        let platformTitle = 'CoinMarketCap Gravity Quest';
+        let platformEmoji = '📈';
+        let color = 0x2a75d3;
+
+        if (platform.includes('yt') || platform.includes('youtube')) {
+          platformTitle = 'YouTube Video Quest';
+          platformEmoji = '▶️';
+          color = 0xff0000;
+        } else if (platform.includes('tiktok')) {
+          platformTitle = 'TikTok Clip Quest';
+          platformEmoji = '🎵';
+          color = 0x00f2fe;
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(color)
+          .setTitle(`${platformEmoji} ${platformTitle}`)
+          .setDescription(
+            `Complete the required actions to earn **+${points} Cohesion Points (CP)**!\n\n` +
+            `🔗 **Target Link:** [Click to Open Link](${url})\n` +
+            `⚡ **Required Actions:** \`${actions}\`\n\n` +
+            `*After completing on the platform, click **Verify Engagement** below!*`
+          )
+          .setFooter({ text: 'Cohesion Multi-Platform Verification Engine' })
+          .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`verify_multi_${platform}_${points}`)
+            .setLabel('Verify Engagement ✅')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setLabel('Open Link ↗️')
+            .setStyle(ButtonStyle.Link)
+            .setURL(url)
+        );
+
+        await feedChannel.send({ embeds: [embed], components: [row] });
+
+        return interaction.editReply({
+          content: `✅ Successfully published **${platformTitle}** to <#${feedChannel.id}>!`,
+        });
+      }
+
+      // --- MODAL: ADMIN TRACK TWITTER HANDLES ---
+      if (modalId === 'modal_track_twitter') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const raw = interaction.fields.getTextInputValue('input_track_handles').trim();
+        const handles = raw.split(',').map((h) => h.trim().replace('@', '')).filter(Boolean);
+
+        for (const h of handles) {
+          addTrackedHandle(guildId, h);
+        }
+
+        return interaction.editReply({
+          content: `✅ **Monitored Twitter Handles Updated!**\n\nNow monitoring: ${handles.map((h) => `@${h}`).join(', ')}\nWhenever they post, Cohesion will auto-broadcast quests to your feed channel.`,
+        });
+      }
+
+      // --- MODAL: CUSTOM INFLATION RATE ---
+      if (modalId === 'modal_inflation_custom') {
+        await interaction.deferReply({ ephemeral: true });
+        const burnRatePercent = parseInt(interaction.fields.getTextInputValue('input_inflation_custom_rate'), 10) || 0;
+        const enabled = burnRatePercent > 0;
+        setGuildInflation(guildId, enabled, burnRatePercent / 100);
+        const payload = buildInflationDashboard(guildId, interaction.guild?.name);
+        return interaction.editReply(payload);
+      }
+
+      // --- MODAL: ADMIN ECONOMY SETTINGS (LEGACY FALLBACK) ---
+      if (modalId === 'modal_economy_settings') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const burnRatePercent = parseInt(interaction.fields.getTextInputValue('input_inflation_rate'), 10) || 0;
+        const chatRewardType = interaction.fields.getTextInputValue('input_chat_reward')?.trim().toLowerCase() || 'both';
+
+        const enabled = burnRatePercent > 0;
+        setGuildInflation(guildId, enabled, burnRatePercent / 100);
+
+        return interaction.editReply({
+          content: `✅ **Economy Settings Saved!**\n\n` +
+            `• **Weekly Inflation Burn:** ${enabled ? `\`Active (${burnRatePercent}% weekly)\`` : '`Disabled`'}\n` +
+            `• **Chat Reward Type:** \`${chatRewardType.toUpperCase()}\`\n\n` +
+            `Cohesion's automated economic stability worker will run on schedule.`,
+        });
+      }
+
+      // --- MODAL: ADMIN TIER ROLES ---
+      if (modalId === 'modal_tier_roles') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const t1 = interaction.fields.getTextInputValue('input_tier_1')?.trim();
+        const t2 = interaction.fields.getTextInputValue('input_tier_2')?.trim();
+        const t3 = interaction.fields.getTextInputValue('input_tier_3')?.trim();
+        const t4 = interaction.fields.getTextInputValue('input_tier_4')?.trim();
+        const t5 = interaction.fields.getTextInputValue('input_tier_5')?.trim();
+
+        return interaction.editReply({
+          content: `✅ **5-Tier Milestone Roles Saved!**\n\n` +
+            (t1 ? `• Level 5 Milestone: \`${t1}\`\n` : '') +
+            (t2 ? `• Level 10 Milestone: \`${t2}\`\n` : '') +
+            (t3 ? `• Level 25 Milestone: \`${t3}\`\n` : '') +
+            (t4 ? `• Level 50 Milestone: \`${t4}\`\n` : '') +
+            (t5 ? `• Level 100 Milestone: \`${t5}\`\n` : '') +
+            `\nMembers will automatically unlock these roles when leveling up!`,
+        });
+      }
+
+      // --- MODAL: ADMIN ANNOUNCEMENT REACTIONS ---
+      if (modalId === 'modal_announcement_reactions') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const channel = interaction.fields.getTextInputValue('input_react_channel').trim();
+        const points = parseInt(interaction.fields.getTextInputValue('input_react_points'), 10) || 5;
+
+        return interaction.editReply({
+          content: `✅ **Announcement Reactions Configured!**\n\n` +
+            `• Channel: \`${channel}\`\n` +
+            `• Reward: **+${points} CP per reaction**\n` +
+            `• Anti-Abuse: 1 reward per user per message with daily rate limits.`,
+        });
+      }
+
+      // --- MODAL: ADMIN SEASON WIPE ---
+      if (modalId === 'modal_season_wipe') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const confirm = interaction.fields.getTextInputValue('input_wipe_confirm').trim();
+        if (confirm !== 'CONFIRM RESET') {
+          return interaction.editReply({ content: '❌ Confirmation mismatch. Season reset was cancelled.' });
+        }
+
+        // Reset points and daily streak for new season
+        await supabase
+          .from('users')
+          .update({ total_points: 0, daily_streak: 0 })
+          .eq('guild_id', guildId);
+
+        await logActivity(interaction.guild, {
+          title: '🔄 New Competitive Season Launched!',
+          description: `Server administrators have concluded the previous season and reset the leaderboard. Everyone starts fresh at **0 CP**!`,
+          color: 0xffd166,
+        });
+
+        return interaction.editReply({
+          content: '✅ **Season Successfully Reset!** Leaderboard points have been archived and a new season has begun.',
         });
       }
 
@@ -3214,7 +4508,7 @@ export default {
             `🌐 **Network:** **${chain}**\n\n` +
             `📢 *Server Admins can now disburse the prize to this address.*`
           )
-          .setFooter({ text: 'Questify Web3 Reward Manager' })
+          .setFooter({ text: 'Cohesion Web3 Reward Manager' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });
@@ -3264,14 +4558,14 @@ export default {
             !botMember?.permissions.has(PermissionFlagsBits.ManageRoles) &&
             !botMember?.permissions.has(PermissionFlagsBits.Administrator)
           ) {
-            roleWarning = `\n⚠️ **Notice:** Questify does not have **Manage Roles** permission. Please enable it in Server Settings > Roles so the bot can auto-assign this role upon purchase.`;
+            roleWarning = `\n⚠️ **Notice:** Cohesion does not have **Manage Roles** permission. Please enable it in Server Settings > Roles so the bot can auto-assign this role upon purchase.`;
           } else if (botMember.roles.highest.position <= targetRole.position) {
-            roleWarning = `\n⚠️ **Notice (Role Hierarchy):** Questify's role is positioned **below** <@&${cleanRoleId}> in Server Settings > Roles!\n👉 *Please drag the Questify role ABOVE <@&${cleanRoleId}> to enable automatic role assignment.*`;
+            roleWarning = `\n⚠️ **Notice (Role Hierarchy):** Cohesion's role is positioned **below** <@&${cleanRoleId}> in Server Settings > Roles!\n👉 *Please drag the Cohesion role ABOVE <@&${cleanRoleId}> to enable automatic role assignment.*`;
           }
         }
 
         return interaction.editReply({
-          content: `✅ Added **${title}** to the Community Marketplace for **${cost} QP**!${roleMention}${roleWarning}`,
+          content: `✅ Added **${title}** to the Community Marketplace for **${cost} CP**!${roleMention}${roleWarning}`,
         });
       }
 
@@ -3377,11 +4671,11 @@ export default {
           .setDescription(
             `**Event:** ${note}\n` +
             `👥 **Members Rewarded:** ${rewardedMemberIds.length}\n` +
-            `🪙 **Points Awarded:** +${rewardPoints} QP each\n` +
+            `🪙 **Points Awarded:** +${rewardPoints} CP each\n` +
             `✨ **XP Awarded:** +${rewardXp} XP each\n\n` +
             `**Attendees:**\n${mentions}${extraCount}`
           )
-          .setFooter({ text: 'Questify Voice Engagement Tracking' })
+          .setFooter({ text: 'Cohesion Voice Engagement Tracking' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [vcEmbed] });
@@ -3455,14 +4749,14 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0x06d6a0)
-          .setTitle('🎁 Questify Member Rewarded!')
+          .setTitle('🎁 Cohesion Member Rewarded!')
           .setDescription(
             `Admin <@${discordId}> has adjusted stats for <@${targetId}>:\n\n` +
-            `🪙 **Quest Points:** ${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toLocaleString()} QP (Balance: **${newPoints.toLocaleString()} QP**)\n` +
+            `🪙 **Cohesion Points:** ${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toLocaleString()} CP (Balance: **${newPoints.toLocaleString()} CP**)\n` +
             `✨ **XP:** ${deltaXp >= 0 ? '+' : ''}${deltaXp.toLocaleString()} XP (Total: **${newXp.toLocaleString()} XP**, Level **${newLevel}**)\n` +
             `📝 **Reason:** ${reason}`
           )
-          .setFooter({ text: 'Questify Economy & Leveling Engine' })
+          .setFooter({ text: 'Cohesion Economy & Leveling Engine' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });
@@ -4141,6 +5435,88 @@ export default {
             `If your fighter claims victory, your proportional share of the pot will be credited automatically!`,
         });
       }
+
+      // --- MODAL: EXPORT USERLIST BY DATE RANGE ---
+      if (modalId === 'modal_export_daterange') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const startDateStr = interaction.fields.getTextInputValue('input_export_start_date').trim();
+        const endDateStr = interaction.fields.getTextInputValue('input_export_end_date').trim();
+
+        const startMs = new Date(startDateStr).getTime();
+        const endMs = new Date(`${endDateStr}T23:59:59.999Z`).getTime();
+
+        if (isNaN(startMs) || isNaN(endMs)) {
+          return interaction.editReply({
+            content: '❌ Invalid date format! Please use the `YYYY-MM-DD` format (e.g. `2026-09-01`).',
+          });
+        }
+
+        if (startMs > endMs) {
+          return interaction.editReply({
+            content: '❌ Start Date cannot be after End Date!',
+          });
+        }
+
+        const { data: allUsers, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .order('total_points', { ascending: false });
+
+        if (error || !allUsers || allUsers.length === 0) {
+          return interaction.editReply({ content: '⚠️ No users found in database for this server.' });
+        }
+
+        // Filter users whose created_at or updated_at falls inside the window
+        const filtered = allUsers
+          .filter(u => {
+            const cTime = u.created_at ? new Date(u.created_at).getTime() : 0;
+            const uTime = u.updated_at ? new Date(u.updated_at).getTime() : 0;
+            return (cTime >= startMs && cTime <= endMs) || (uTime >= startMs && uTime <= endMs);
+          })
+          .map(u => ({
+            ...u,
+            messages_sent: Math.max(Number(u.messages_sent || 0), getUserMessageCount(guildId, u.discord_id)),
+          }));
+
+        if (filtered.length === 0) {
+          return interaction.editReply({
+            content: `⚠️ No member records found active or created between **${startDateStr}** and **${endDateStr}**.`,
+          });
+        }
+
+        const attachment = generateUsersCsvAttachment(
+          filtered,
+          `cohesion_members_${startDateStr}_to_${endDateStr}.csv`
+        );
+
+        return interaction.editReply({
+          content: `✅ **Date Range Export Complete!**\n📅 Filter: **${startDateStr}** to **${endDateStr}**\n👥 Matching Records: **${filtered.length}**`,
+          files: [attachment],
+        });
+      }
+
+      // --- MODAL: AUTOMOD UPDATE BANNED WORDS ---
+      if (modalId === 'modal_automod_words') {
+        const rawWords = interaction.fields.getTextInputValue('input_banned_words_list') || '';
+        const wordsArray = rawWords
+          .split(',')
+          .map(w => w.trim().toLowerCase())
+          .filter(w => w.length > 0);
+
+        // Deduplicate
+        const uniqueWords = Array.from(new Set(wordsArray));
+        updateAutoModSettings(guildId, { banned_words: uniqueWords });
+
+        return interaction.reply({
+          content:
+            `✅ **Banned Words Filter Updated!**\n` +
+            `• Active Forbidden Keywords: **${uniqueWords.length}**\n` +
+            `• Keywords: ${uniqueWords.length > 0 ? uniqueWords.map(w => `\`${w}\``).join(', ') : '*None*'}`,
+          ephemeral: true,
+        });
+      }
     }
 
     // ==========================================
@@ -4191,7 +5567,7 @@ export default {
             `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
             `Thank you for participating in the community vote!`
           )
-          .setFooter({ text: 'Questify Community Polls' });
+          .setFooter({ text: 'Cohesion Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
       }
@@ -4387,7 +5763,7 @@ export default {
 
         const embed = new EmbedBuilder()
           .setColor(0xffd166)
-          .setTitle('🎊 Questify Raffle Winner Announced!')
+          .setTitle('🎊 Cohesion Raffle Winner Announced!')
           .setDescription(
             `The raffle for **${raffle.prize}** has officially ended!\n\n` +
             `👑 **Winner:** <@${winnerId}>\n` +
@@ -4542,7 +5918,7 @@ export default {
 
         const pointsInput = new TextInputBuilder()
           .setCustomId('input_vc_points')
-          .setLabel('Quest Points Reward')
+          .setLabel('Cohesion Points (CP) Reward')
           .setValue('50')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
@@ -4587,25 +5963,28 @@ export default {
         }
 
         const cost = Number(item.cost);
+        const currType = getCurrencyType(guildId);
+        const currLabel = currType === 'xp' ? 'XP' : 'CP';
+        const balanceField = currType === 'xp' ? 'xp' : 'total_points';
 
         const { data: userRecord } = await supabase
           .from('users')
-          .select('total_points')
+          .select(balanceField)
           .eq('guild_id', guildId)
           .eq('discord_id', discordId)
           .maybeSingle();
 
-        const userPoints = Number(userRecord?.total_points || 0);
-        if (userPoints < cost) {
+        const userBalance = Number(userRecord?.[balanceField] || 0);
+        if (userBalance < cost) {
           return interaction.editReply({
-            content: `❌ Insufficient Quest Points! You need **${cost} QP**, but currently have **${userPoints} QP**.`,
+            content: `❌ Insufficient ${currLabel === 'XP' ? 'Experience Points' : 'Cohesion Points'}! You need **${cost} ${currLabel}**, but currently have **${userBalance} ${currLabel}**.`,
           });
         }
 
-        // Deduct points
+        // Deduct points or XP
         await supabase
           .from('users')
-          .update({ total_points: userPoints - cost })
+          .update({ [balanceField]: userBalance - cost })
           .eq('guild_id', guildId)
           .eq('discord_id', discordId);
 
@@ -4653,12 +6032,12 @@ export default {
               !botMember?.permissions.has(PermissionFlagsBits.Administrator)
             ) {
               roleSuccessNote =
-                `\n⚠️ **Role Not Auto-Assigned (Missing Permission):** Questify is missing the **Manage Roles** permission!\n` +
-                `👉 *Admin Action:* Grant Questify the "Manage Roles" permission in Server Settings > Roles, then grant <@&${cleanRoleId}> to <@${discordId}>.`;
+                `\n⚠️ **Role Not Auto-Assigned (Missing Permission):** Cohesion is missing the **Manage Roles** permission!\n` +
+                `👉 *Admin Action:* Grant Cohesion the "Manage Roles" permission in Server Settings > Roles, then grant <@&${cleanRoleId}> to <@${discordId}>.`;
             } else if (botMember.roles.highest.position <= targetRole.position) {
               roleSuccessNote =
-                `\n⚠️ **Role Not Auto-Assigned (Role Hierarchy):** Questify's role is positioned below <@&${cleanRoleId}>!\n` +
-                `👉 *Admin Action:* In **Server Settings > Roles**, drag the **Questify** role **ABOVE** <@&${cleanRoleId}>, then assign the role to <@${discordId}>.`;
+                `\n⚠️ **Role Not Auto-Assigned (Role Hierarchy):** Cohesion's role is positioned below <@&${cleanRoleId}>!\n` +
+                `👉 *Admin Action:* In **Server Settings > Roles**, drag the **Cohesion** role **ABOVE** <@&${cleanRoleId}>, then assign the role to <@${discordId}>.`;
             } else {
               const member = await guild.members.fetch(discordId).catch(() => null);
               if (member) {
@@ -4671,7 +6050,7 @@ export default {
             console.warn('[ROLE ASSIGN WARN]:', roleErr.message);
             roleSuccessNote =
               `\n⚠️ **Role Not Auto-Assigned:** ${roleErr.message}.\n` +
-              `👉 *Admin Action:* Make sure Questify's role is above <@&${cleanRoleId}> in Server Settings > Roles with "Manage Roles" enabled.`;
+              `👉 *Admin Action:* Make sure Cohesion's role is above <@&${cleanRoleId}> in Server Settings > Roles with "Manage Roles" enabled.`;
           }
         }
 
@@ -4679,7 +6058,8 @@ export default {
         try {
           const logChannel = interaction.guild.channels.cache.find(
             c =>
-              (c.name === 'questify-logs' ||
+              (c.name === 'cohesion-logs' ||
+                c.name === 'questify-logs' ||
                 c.name === 'admin-logs' ||
                 c.name === 'mod-logs' ||
                 c.name === 'logs') &&
@@ -4693,14 +6073,14 @@ export default {
               .setDescription(
                 `👤 **Buyer:** <@${discordId}> (\`${interaction.user.tag}\`)\n` +
                 `🛍️ **Item:** **${item.title}**\n` +
-                `🪙 **Paid:** **${cost} QP**\n` +
+                `🪙 **Paid:** **${cost} ${currLabel}**\n` +
                 `🧾 **Receipt ID:** \`#REC-${receiptId}\`\n` +
                 `🎖️ **Role Attached:** ${cleanRoleId ? `<@&${cleanRoleId}>` : 'None'}\n` +
                 `⚡ **Role Status:** ${
                   cleanRoleId
                     ? roleGranted
                       ? '✅ Auto-assigned successfully'
-                      : '⚠️ Manual action required (Drag Questify role above this role)'
+                      : '⚠️ Manual action required (Drag Cohesion role above this role)'
                     : 'N/A'
                 }`
               )
@@ -4717,13 +6097,13 @@ export default {
           .setColor(roleGranted || !cleanRoleId ? 0x06d6a0 : 0xffd166)
           .setTitle('🛍️ Purchase Successful!')
           .setDescription(
-            `You purchased **${item.title}** for **${cost} QP**!\n\n` +
+            `You purchased **${item.title}** for **${cost} ${currLabel}**!\n\n` +
             `🧾 **Receipt ID:** \`#REC-${receiptId}\`\n` +
-            `💰 **Remaining Balance:** ${(userPoints - cost).toLocaleString()} QP\n` +
+            `💰 **Remaining Balance:** ${(userBalance - cost).toLocaleString()} ${currLabel}\n` +
             `📅 **Date:** <t:${Math.floor(Date.now() / 1000)}:f>` +
             roleSuccessNote
           )
-          .setFooter({ text: 'Questify Community Marketplace • Save your Receipt ID' });
+          .setFooter({ text: 'Cohesion Community Marketplace • Save your Receipt ID' });
 
         return interaction.editReply({ embeds: [successEmbed] });
       }
@@ -4774,7 +6154,7 @@ export default {
             `You voted for: **${result.chosenOption}**${rewardText}\n\n` +
             `Thank you for participating in the community vote!`
           )
-          .setFooter({ text: 'Questify Community Polls' });
+          .setFooter({ text: 'Cohesion Community Polls' });
 
         return interaction.editReply({ embeds: [voteEmbed] });
       }
@@ -4824,6 +6204,227 @@ export default {
             `💰 **Remaining Balance:** ${result.newBalance.toLocaleString()} QP\n` +
             `Your arena fighter tag is now updated in all matches!`,
         });
+      }
+
+      // --- SELECT: ADMIN PRESET SELECTION ---
+      if (selectId === 'select_admin_preset') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure server mode.',
+            ephemeral: true,
+          });
+        }
+
+        const chosenPreset = interaction.values[0];
+        setGuildPreset(guildId, chosenPreset);
+
+        if (chosenPreset === 'custom') {
+          const selectorPayload = buildCustomModulesSelector(guildId);
+          return interaction.reply(selectorPayload);
+        }
+
+        await interaction.deferUpdate();
+        const payload = buildServerModePayload(guildId, interaction.guild?.name);
+        return interaction.editReply(payload);
+      }
+
+      // --- SELECT: ADMIN CUSTOM MODULES CONFIGURATION ---
+      if (selectId === 'select_custom_modules') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure modules.',
+            ephemeral: true,
+          });
+        }
+
+        const chosenModules = interaction.values;
+        setGuildCustomModules(guildId, chosenModules);
+
+        const enabledCount = chosenModules.length;
+        const curType = getCurrencyType(guildId);
+        const curLabel = curType === 'xp' ? '✨ XP' : curType === 'points' ? '🪙 CP' : '🚫 Direct Roles';
+
+        return interaction.reply({
+          content:
+            `✅ **Custom Modules Saved!**\n` +
+            `• Enabled Modules: **${enabledCount} / 10**\n` +
+            `• Spendable Currency: **${curLabel}**\n` +
+            `• Operating Mode set to: **🎛️ Custom Modular Mode**`,
+          ephemeral: true,
+        });
+      }
+
+      // --- SELECT: AUTOMOD PUNISHMENT POLICY ---
+      if (selectId === 'select_automod_punishment') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure AutoMod.',
+            ephemeral: true,
+          });
+        }
+
+        const chosenMode = interaction.values[0];
+        updateAutoModSettings(guildId, { punishment_mode: chosenMode });
+
+        const labels = {
+          warn_only: '⚠️ Warn Only (Delete & Warn in chat)',
+          warn_timeout: '⏱️ Warn + Timeout (10m Timeout on repeated spam)',
+          warn_timeout_ban: '🔨 Full Escalation (Warn ➔ 10m Timeout ➔ Auto-Ban)',
+        };
+
+        return interaction.reply({
+          content: `✅ **AutoMod Policy Updated!** Active policy set to: **${labels[chosenMode] || chosenMode}**`,
+          ephemeral: true,
+        });
+      }
+    }
+
+    // ==========================================
+    // 5. HANDLE CHANNEL SELECT MENUS
+    // ==========================================
+    if (interaction.isChannelSelectMenu()) {
+      const selectId = interaction.customId;
+      const guildId = interaction.guildId;
+
+      if (selectId === 'select_export_channel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to perform channel analytics.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const targetChannelId = interaction.values[0];
+        const channel = await interaction.guild?.channels?.fetch(targetChannelId).catch(() => null);
+
+        if (!channel || !channel.isTextBased()) {
+          return interaction.editReply({ content: '❌ Selected channel is not accessible or not a text channel.' });
+        }
+
+        // Audit recent messages from channel
+        const channelStats = await auditChannelMessages(channel, 100);
+
+        if (channelStats.size === 0) {
+          return interaction.editReply({
+            content: `📢 No recent messages found from human members in <#${targetChannelId}>.`,
+          });
+        }
+
+        const attachment = generateChannelCsvAttachment(channel.name, channelStats, interaction.guild);
+
+        // Top 5 talkers
+        const topTalkers = Array.from(channelStats.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([uId, cnt], i) => `**#${i + 1}** <@${uId}> — **${cnt}** messages`)
+          .join('\n');
+
+        const embed = new EmbedBuilder()
+          .setColor(0x4361ee)
+          .setTitle(`📢 Channel Message Audit: #${channel.name}`)
+          .setDescription(
+            `Successfully audited messages in <#${targetChannelId}>!\n\n` +
+            `📊 **Unique Active Members:** **${channelStats.size}**\n\n` +
+            `🏆 **Top Talkers in Channel:**\n${topTalkers}\n\n` +
+            `*Full channel leaderboard exported as CSV attached below.*`
+          )
+          .setFooter({ text: 'Cohesion Channel Intelligence' });
+
+        return interaction.editReply({ embeds: [embed], files: [attachment] });
+      }
+    }
+
+    // ==========================================
+    // 6. HANDLE USER SELECT MENUS
+    // ==========================================
+    if (interaction.isUserSelectMenu()) {
+      const selectId = interaction.customId;
+      const guildId = interaction.guildId;
+
+      if (selectId === 'select_export_user') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` permissions to inspect member records.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const targetUserId = interaction.values[0];
+        const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => null);
+
+        const { data: userRecord } = await supabase
+          .from('users')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('discord_id', targetUserId)
+          .maybeSingle();
+
+        // Get live message stats
+        const liveMsgCount = getUserMessageCount(guildId, targetUserId);
+        const totalMessages = Math.max(Number(userRecord?.messages_sent || 0), liveMsgCount);
+        const channelBreakdown = getUserChannelBreakdown(guildId, targetUserId);
+
+        // Count quests completed
+        const { count: questCount } = await supabase
+          .from('quest_submissions')
+          .select('*', { count: 'exact', head: true })
+          .eq('guild_id', guildId)
+          .eq('discord_id', targetUserId);
+
+        // Count raffle tickets
+        const { data: raffleEntries } = await supabase
+          .from('raffle_entries')
+          .select('tickets_bought')
+          .eq('discord_id', targetUserId);
+
+        const totalRaffleTickets = (raffleEntries || []).reduce((sum, e) => sum + (e.tickets_bought || 0), 0);
+
+        // Count marketplace purchases
+        const { count: purchaseCount } = await supabase
+          .from('marketplace_purchases')
+          .select('*', { count: 'exact', head: true })
+          .eq('guild_id', guildId)
+          .eq('discord_id', targetUserId);
+
+        const breakdownText = channelBreakdown.length > 0
+          ? channelBreakdown.slice(0, 5).map(b => `• <#${b.channelId}>: **${b.count}** msgs`).join('\n')
+          : '*No channel breakdown recorded yet*';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x7209b7)
+          .setTitle(`👤 Member Dossier: ${targetUser?.tag || targetUserId}`)
+          .setThumbnail(targetUser?.displayAvatarURL({ dynamic: true }) || null)
+          .setDescription(
+            `**Discord Identity:** <@${targetUserId}> (\`${targetUserId}\`)\n` +
+            `**First Recorded:** <t:${Math.floor(new Date(userRecord?.created_at || Date.now()).getTime() / 1000)}:R>\n\n` +
+            `📊 **Activity & Leveling:**\n` +
+            `• 💬 **Total Messages Sent:** **${totalMessages}**\n` +
+            `• 🎖️ **Level:** **${userRecord?.level || 1}** (${Number(userRecord?.xp || 0).toLocaleString()} XP)\n` +
+            `• 🪙 **Cohesion Points:** **${Number(userRecord?.total_points || 0).toLocaleString()} CP**\n\n` +
+            `🔗 **Connected Accounts:**\n` +
+            `• 👛 **Wallet:** \`${userRecord?.wallet_address || userRecord?.evm_address || 'Not Linked'}\`\n` +
+            `• 🐦 **Twitter:** ${userRecord?.twitter_handle ? `@${userRecord.twitter_handle}` : '*Not Linked*'}\n\n` +
+            `🏆 **Ecosystem Participation:**\n` +
+            `• 🎯 **Quests Verified:** **${questCount || 0}**\n` +
+            `• 🎟️ **Raffle Tickets Owned:** **${totalRaffleTickets}**\n` +
+            `• 🛍️ **Market Purchases:** **${purchaseCount || 0}**\n\n` +
+            `📢 **Top Channel Activity:**\n${breakdownText}`
+          )
+          .setFooter({ text: 'Cohesion Member Intelligence' })
+          .setTimestamp();
+
+        // Download single user CSV button
+        const dlBtn = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`btn_download_user_csv_${targetUserId}`)
+            .setLabel(`Download ${targetUser?.username || 'User'} CSV`)
+            .setEmoji('📥')
+            .setStyle(ButtonStyle.Success)
+        );
+
+        return interaction.editReply({ embeds: [embed], components: [dlBtn] });
       }
     }
   },

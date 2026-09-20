@@ -52,7 +52,7 @@ export default {
         .setTitle('🔗 Twitter / X Connected!')
         .setDescription(
           `Your Discord account is now linked with **@${cleanUsername}** on X!\n\n` +
-          `You can now click **Like ❤️** and **Retweet 🔁** buttons on active tweet quests to claim Engage Points.`
+          `You can now click **Like ❤️** and **Retweet 🔁** buttons on active tweet quests to claim Cohesion Points (CP).`
         )
         .setThumbnail('https://abs.twimg.com/icons/apple-touch-icon-192x192.png');
 

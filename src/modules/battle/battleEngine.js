@@ -1176,7 +1176,7 @@ async function concludeMatch(match, channel, client) {
   });
 
   resultEmbed.setFooter({
-    text: `Match ID: ${match.matchId} • Questify Battle Royale Engine • Today at ${timeStr}`,
+    text: `Match ID: ${match.matchId} • Cohesion Battle Royale Engine • Today at ${timeStr}`,
   });
 
   if (channel) {

@@ -26,9 +26,7 @@ async function getCommandFiles(dir) {
       const commandModule = await import(pathToFileURL(fullPath).href);
       const command = commandModule.default || commandModule;
       if (command && 'data' in command && 'execute' in command) {
-        if (UI_COMMANDS.has(command.data.name)) {
-          commands.push(command.data.toJSON());
-        }
+        commands.push(command.data.toJSON());
       }
     }
   }

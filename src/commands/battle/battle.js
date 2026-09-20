@@ -31,14 +31,14 @@ export default {
     .addIntegerOption((option) =>
       option
         .setName('prize')
-        .setDescription('Winner Quest Points reward pool (default: 500 QP)')
+        .setDescription('Winner Cohesion Points (CP) reward pool (default: 500 CP)')
         .setRequired(false)
         .setMinValue(50)
     )
     .addIntegerOption((option) =>
       option
         .setName('entry_fee')
-        .setDescription('Optional QP fee required to join the battle lobby (default: 0)')
+        .setDescription('Optional CP fee required to join the battle lobby (default: 0)')
         .setRequired(false)
         .setMinValue(0)
     )

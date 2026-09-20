@@ -26,7 +26,7 @@ export async function fetchTweetMetadata(url, username, tweetId) {
   try {
     const fxUrl = `https://api.fxtwitter.com/${username || 'i'}/status/${tweetId}`;
     const res = await fetch(fxUrl, {
-      headers: { 'User-Agent': 'QuestifyBot/1.0' },
+      headers: { 'User-Agent': 'CohesionBot/1.0' },
     });
 
     if (res.ok) {

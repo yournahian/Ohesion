@@ -1,0 +1,292 @@
+/**
+ * Guild Operating Modes & Dual Currency (Points vs XP) Settings Manager.
+ * Supports:
+ * 1. Presets:
+ *    - 'full_economy': Points (CP) + XP + Raffles + Auctions + Marketplace + Quests + Referrals + Attendance + Trivia + Battle
+ *    - 'xp_only': Server XP as currency + XP Leveling + Raffles (XP) + Auctions (XP) + Marketplace (XP) + Attendance + Trivia (No separate points)
+ *    - 'social_roles_only': Quests + Referrals + Direct Role Rewards (No Points, No Currency)
+ *    - 'custom': Custom active modules array chosen by admin
+ * 2. Currency:
+ *    - 'points' (default Cohesion Points - CP)
+ *    - 'xp' (Server Experience - XP)
+ */
+
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+} from 'discord.js';
+import { supabase } from '../lib/supabase.js';
+
+const cache = new Map();
+
+export const DEFAULT_MODULES = [
+  'points',
+  'xp',
+  'raffles',
+  'auctions',
+  'marketplace',
+  'quests',
+  'referrals',
+  'attendance',
+  'trivia',
+  'battle',
+];
+
+export const PRESET_CONFIGS = {
+  full_economy: {
+    name: '🟢 Full Economy',
+    description: 'All features active: Cohesion Points (CP), Leveling XP, Raffles, Auctions, Marketplace, Quests, Referrals.',
+    currency: 'points',
+    modules: [...DEFAULT_MODULES],
+  },
+  xp_only: {
+    name: '⚪ Level & XP Only (XP Currency)',
+    description: 'No virtual points! Server XP is the spendable currency for Raffles, Auctions, and Marketplace.',
+    currency: 'xp',
+    modules: ['xp', 'raffles', 'auctions', 'marketplace', 'attendance', 'trivia'],
+  },
+  social_roles_only: {
+    name: '🟣 Social & Roles Only',
+    description: 'Zero virtual currency/spending. Focuses on Quests, Raids, and direct Discord Role rewards.',
+    currency: 'none',
+    modules: ['quests', 'referrals', 'attendance'],
+  },
+  custom: {
+    name: '🎛️ Custom Modular Mode',
+    description: 'Server admin has customized exactly which modules are enabled or disabled.',
+    currency: 'points',
+    modules: [...DEFAULT_MODULES],
+  },
+};
+
+/**
+ * Gets guild settings (from cache or defaults).
+ * @param {string} guildId 
+ * @returns {Object}
+ */
+export function getGuildSettings(guildId) {
+  if (!guildId) return PRESET_CONFIGS.full_economy;
+  const existing = cache.get(guildId);
+  if (existing) return existing;
+
+  const defaultSetting = {
+    server_mode: 'full_economy',
+    currency_type: 'points',
+    enabled_modules: [...DEFAULT_MODULES],
+  };
+  cache.set(guildId, defaultSetting);
+  return defaultSetting;
+}
+
+/**
+ * Checks if a specific feature module is enabled for a guild.
+ * @param {string} guildId 
+ * @param {string} moduleKey 
+ * @returns {boolean}
+ */
+export function isModuleEnabled(guildId, moduleKey) {
+  const settings = getGuildSettings(guildId);
+  return settings.enabled_modules.includes(moduleKey);
+}
+
+/**
+ * Gets the primary spendable currency for a guild ('points' or 'xp').
+ * @param {string} guildId 
+ * @returns {'points' | 'xp' | 'none'}
+ */
+export function getCurrencyType(guildId) {
+  const settings = getGuildSettings(guildId);
+  return settings.currency_type || 'points';
+}
+
+/**
+ * Sets a preset mode for a guild.
+ * @param {string} guildId 
+ * @param {'full_economy' | 'xp_only' | 'social_roles_only' | 'custom'} presetKey 
+ */
+export function setGuildPreset(guildId, presetKey) {
+  const preset = PRESET_CONFIGS[presetKey] || PRESET_CONFIGS.full_economy;
+  const updated = {
+    server_mode: presetKey,
+    currency_type: preset.currency,
+    enabled_modules: [...preset.modules],
+  };
+  cache.set(guildId, updated);
+  return updated;
+}
+
+/**
+ * Sets the primary spendable currency for a guild ('points' or 'xp').
+ * @param {string} guildId 
+ * @param {'points' | 'xp'} currency 
+ */
+export function setGuildCurrency(guildId, currency) {
+  const current = getGuildSettings(guildId);
+  current.currency_type = currency;
+  cache.set(guildId, current);
+  return current;
+}
+
+/**
+ * Sets custom active modules for a guild.
+ * @param {string} guildId 
+ * @param {Array<string>} modules 
+ */
+export function setGuildCustomModules(guildId, modules) {
+  const current = getGuildSettings(guildId);
+  current.server_mode = 'custom';
+  current.enabled_modules = [...modules];
+  // Auto-adjust currency if points is disabled
+  if (!modules.includes('points') && current.currency_type === 'points') {
+    current.currency_type = modules.includes('xp') ? 'xp' : 'none';
+  }
+  cache.set(guildId, current);
+  return current;
+}
+
+/**
+ * Builds the interactive Discord Embed and Control Menu for Server Operating Mode & Modules.
+ */
+export function buildServerModePayload(guildId, guildName) {
+  const settings = getGuildSettings(guildId);
+  const presetKey = settings.server_mode || 'full_economy';
+  const currType = settings.currency_type || 'points';
+
+  const presetLabels = {
+    full_economy: '🟢 Full Economy (Points + XP)',
+    xp_only: '⚪ Level & XP Only (XP Currency)',
+    social_roles_only: '🟣 Social & Roles Only (No Points)',
+    custom: '🎛️ Custom Modular Mode',
+  };
+
+  const moduleList = [
+    { key: 'points', label: '🪙 Points Economy (CP)' },
+    { key: 'xp', label: '✨ Leveling & XP Progression' },
+    { key: 'raffles', label: '🎟️ Raffles & Giveaways' },
+    { key: 'auctions', label: '🔨 Live Auctions' },
+    { key: 'marketplace', label: '🛒 Marketplace & Roles' },
+    { key: 'quests', label: '🎯 Quests & Social Feeds' },
+    { key: 'referrals', label: '🤝 Referral Codes' },
+    { key: 'attendance', label: '🎙️ Attendance & VC XP' },
+    { key: 'trivia', label: '🧠 Trivia & Quizzes' },
+    { key: 'battle', label: '⚔️ Battle Engine' },
+  ];
+
+  const statusText = moduleList
+    .map(m => `${isModuleEnabled(guildId, m.key) ? '✅' : '❌'} **${m.label}**`)
+    .join('\n');
+
+  const embed = new EmbedBuilder()
+    .setColor(0x7209b7)
+    .setTitle(`⚙️ Server Mode & Module Manager • ${guildName || 'Server'}`)
+    .setDescription(
+      `Configure which modules run on this server and choose the spendable currency for Auctions, Raffles, and Marketplace.\n\n` +
+      `**Current Operating Mode:**\n` +
+      `👉 **${presetLabels[presetKey] || presetKey}**\n\n` +
+      `**Active Spendable Currency:**\n` +
+      `👉 **${currType === 'xp' ? '✨ Experience Points (XP)' : currType === 'points' ? '🪙 Cohesion Points (CP)' : '🚫 None (Direct Roles)'}**\n` +
+      `*(Raffles, Live Auctions, and Marketplace purchase transactions use this currency)*\n\n` +
+      `**Active Modules Status:**\n` +
+      `${statusText}\n\n` +
+      `*Use the select menu below to switch presets or the buttons to adjust currency/modules.*`
+    )
+    .setFooter({ text: 'Cohesion Modular Architecture • Instant Realtime Sync' })
+    .setTimestamp();
+
+  const presetSelect = new StringSelectMenuBuilder()
+    .setCustomId('select_admin_preset')
+    .setPlaceholder('Change Server Preset...')
+    .addOptions([
+      new StringSelectMenuOptionBuilder()
+        .setLabel('🟢 Full Economy (Points + XP)')
+        .setDescription('Default. Both Points & XP enabled. Best for engagement.')
+        .setValue('full_economy')
+        .setDefault(presetKey === 'full_economy'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('⚪ Level & XP Only (XP Currency)')
+        .setDescription('Points disabled. XP is used for Raffles/Auctions/Marketplace.')
+        .setValue('xp_only')
+        .setDefault(presetKey === 'xp_only'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('🟣 Social & Roles Only')
+        .setDescription('No points or gambling. Social verification and role rewards.')
+        .setValue('social_roles_only')
+        .setDefault(presetKey === 'social_roles_only'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('🎛️ Custom Modular Mode')
+        .setDescription('Pick and choose exactly which modules are enabled or disabled.')
+        .setValue('custom')
+        .setDefault(presetKey === 'custom'),
+    ]);
+
+  const selectRow = new ActionRowBuilder().addComponents(presetSelect);
+
+  const nextCur = currType === 'xp' ? 'points' : 'xp';
+  const nextCurLabel = nextCur === 'xp' ? 'XP' : 'Points (CP)';
+
+  const btnRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('btn_toggle_currency')
+      .setLabel(`Switch Currency to ${nextCurLabel}`)
+      .setEmoji('💱')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('btn_config_custom_modules')
+      .setLabel('🎛️ Select Active Modules')
+      .setEmoji('⚙️')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [selectRow, btnRow] };
+}
+
+/**
+ * Builds the interactive multi-select menu for picking custom active modules.
+ */
+export function buildCustomModulesSelector(guildId) {
+  const currentModules = getGuildSettings(guildId).enabled_modules || DEFAULT_MODULES;
+
+  const moduleOptions = [
+    { label: 'Points Economy (CP)', value: 'points', description: 'Enable CP points earnable via commands & quests' },
+    { label: 'Leveling & XP', value: 'xp', description: 'Chat XP, rank progression, and tier roles' },
+    { label: 'Raffles & Giveaways', value: 'raffles', description: 'Interactive ticket pools and giveaways' },
+    { label: 'Live Auctions', value: 'auctions', description: 'Real-time bidding with automatic escrow' },
+    { label: 'Marketplace & Roles', value: 'marketplace', description: 'Item shop and auto role assignments' },
+    { label: 'Quests & Social Feeds', value: 'quests', description: 'Twitter, CMC, YouTube verification quests' },
+    { label: 'Referral Codes', value: 'referrals', description: 'Member invite codes and reward bonuses' },
+    { label: 'Attendance & VC XP', value: 'attendance', description: 'Voice channel snapshots and transcription' },
+    { label: 'Trivia & Quizzes', value: 'trivia', description: 'Solo quizzes and live Kahoot-style trivia' },
+    { label: 'Battle Engine', value: 'battle', description: 'Interactive text/turn-based battle arena' },
+  ];
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('select_custom_modules')
+    .setPlaceholder('Select active modules (Multi-select enabled)...')
+    .setMinValues(0)
+    .setMaxValues(moduleOptions.length)
+    .addOptions(
+      moduleOptions.map(opt =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(opt.label)
+          .setValue(opt.value)
+          .setDescription(opt.description)
+          .setDefault(currentModules.includes(opt.value))
+      )
+    );
+
+  const embed = new EmbedBuilder()
+    .setColor(0x7209b7)
+    .setTitle('🎛️ Customize Active Server Modules')
+    .setDescription(
+      `Select which modules should be active in this server.\n\n` +
+      `Check or uncheck features to create your custom setup, then click outside or submit to apply instantly.\n\n` +
+      `*(Note: Setting custom modules will automatically activate the **Custom Mode** preset)*`
+    )
+    .setFooter({ text: 'Choose any combination • Changes apply instantly' });
+
+  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(select)], ephemeral: true };
+}

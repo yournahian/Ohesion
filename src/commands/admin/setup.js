@@ -10,7 +10,7 @@ import { buildHubPayload } from '../../utils/hubView.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('One-click setup for Questify: creates the category, #quest-feed, and a live #questify-hub.')
+    .setDescription('One-click setup for Cohesion: creates category, #cohesion-hub, #cohesion-feed, and #cohesion-logs.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
@@ -35,7 +35,7 @@ export default {
 
     if (!guild) {
       return interaction.editReply({
-        content: `⚠️ Questify is not added to this server as a bot. Please invite Questify to this server using this link:\nhttps://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
+        content: `⚠️ Cohesion is not added to this server as a bot. Please invite Cohesion to this server with Administrator permissions.`,
       });
     }
 
@@ -47,52 +47,36 @@ export default {
     if (!hasAdmin && !hasManageChannels) {
       return interaction.editReply({
         content:
-          `⚠️ **Questify lacks permission to create channels in this server!**\n\n` +
+          `⚠️ **Cohesion lacks permission to create channels in this server!**\n\n` +
           `**How to fix:**\n` +
           `1. Go to **Server Settings** ⚙️ > **Roles**\n` +
-          `2. Click on the **Questify** role\n` +
+          `2. Click on the **Cohesion** role\n` +
           `3. Go to the **Permissions** tab and turn ON **Manage Channels** (or **Administrator**)\n` +
-          `4. Click **Save Changes** and run \`/setup\` again!\n\n` +
-          `*Or re-authorize Questify with Administrator privileges:*\n` +
-          `https://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
+          `4. Click **Save Changes** and run \`/setup\` again!`,
       });
     }
 
     try {
-      // 1. Check or create "QUESTIFY" category
+      // 1. Check or create "COHESION ECOSYSTEM" category
       let category = guild.channels.cache.find(
-        c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === 'questify'
+        (c) => c.type === ChannelType.GuildCategory && (c.name.toLowerCase().includes('cohesion') || c.name.toLowerCase() === 'questify')
       );
 
       if (!category) {
         category = await guild.channels.create({
-          name: 'QUESTIFY',
+          name: '🌀 COHESION ECOSYSTEM',
           type: ChannelType.GuildCategory,
         });
       }
 
-      // 2. Check or create #quest-feed channel
-      let questChannel = guild.channels.cache.find(
-        c => c.name === 'quest-feed' && c.parentId === category.id
-      );
-
-      if (!questChannel) {
-        questChannel = await guild.channels.create({
-          name: 'quest-feed',
-          type: ChannelType.GuildText,
-          parent: category.id,
-          topic: 'Live Twitter / X engagement quests and announcements powered by Questify.',
-        });
-      }
-
-      // 3. Check or create #questify-hub channel
+      // 2. Check or create #cohesion-hub channel
       let hubChannel = guild.channels.cache.find(
-        c => c.name === 'questify-hub' && c.parentId === category.id
+        (c) => (c.name === 'cohesion-hub' || c.name === 'questify-hub') && c.parentId === category.id
       );
 
       if (!hubChannel) {
         hubChannel = await guild.channels.create({
-          name: 'questify-hub',
+          name: 'cohesion-hub',
           type: ChannelType.GuildText,
           parent: category.id,
           topic: 'Click buttons below to view stats, claim daily rewards, and enter raffles.',
@@ -101,6 +85,34 @@ export default {
         // Send a persistent, clickable Hub interface right in the channel!
         const hubPayload = await buildHubPayload(guild, interaction.user);
         await hubChannel.send(hubPayload);
+      }
+
+      // 3. Check or create #cohesion-feed channel
+      let questChannel = guild.channels.cache.find(
+        (c) => (c.name === 'cohesion-feed' || c.name === 'quest-feed') && c.parentId === category.id
+      );
+
+      if (!questChannel) {
+        questChannel = await guild.channels.create({
+          name: 'cohesion-feed',
+          type: ChannelType.GuildText,
+          parent: category.id,
+          topic: 'Live Twitter/X, CoinMarketCap, and video quests powered by Cohesion.',
+        });
+      }
+
+      // 4. Check or create #cohesion-logs channel
+      let logChannel = guild.channels.cache.find(
+        (c) => (c.name === 'cohesion-logs' || c.name === 'activity-logs' || c.name === 'engage-logs') && c.parentId === category.id
+      );
+
+      if (!logChannel) {
+        logChannel = await guild.channels.create({
+          name: 'cohesion-logs',
+          type: ChannelType.GuildText,
+          parent: category.id,
+          topic: 'Activity audit logs for quest claims, raffle winners, and marketplace purchases.',
+        });
       }
 
       // Update guild record in Supabase
@@ -114,23 +126,24 @@ export default {
 
       const embed = new EmbedBuilder()
         .setColor(0x06d6a0)
-        .setTitle('✅ Questify Setup Complete!')
+        .setTitle('✅ Cohesion Setup Complete!')
         .setDescription(
-          `Your server is now fully configured for Questify engagement!\n\n` +
-          `📁 **Category:** \`QUESTIFY\`\n` +
-          `📢 **Quests Channel:** <#${questChannel.id}>\n` +
-          `⚡ **Community Hub Channel:** <#${hubChannel.id}>\n\n` +
+          `Your server is now fully configured for Cohesion community gamification!\n\n` +
+          `📁 **Category:** \`🌀 COHESION ECOSYSTEM\`\n` +
+          `⚡ **Community Hub:** <#${hubChannel.id}>\n` +
+          `📢 **Quest Feed:** <#${questChannel.id}>\n` +
+          `📜 **Activity Logs:** <#${logChannel.id}>\n\n` +
           `**What to do next:**\n` +
-          `• Run \`/admin\` to create your first tweet quest or raffle.\n` +
-          `• Members can use the buttons in <#${hubChannel.id}> or type \`/hub\` anytime!`
+          `• Run \`/admin\` to open the visual Control Center.\n` +
+          `• Members can use the 1-click buttons in <#${hubChannel.id}> or run \`/hub\`!`
         )
-        .setFooter({ text: 'Questify Automated Setup' });
+        .setFooter({ text: 'Cohesion Automated Setup' });
 
       return interaction.editReply({ embeds: [embed] });
     } catch (err) {
       console.error('[SETUP ERROR]:', err);
       return interaction.editReply({
-        content: `❌ Setup failed: ${err.message}. Make sure Questify has Administrator permissions to create channels.`,
+        content: `❌ Setup failed: ${err.message}. Make sure Cohesion has Administrator permissions to create channels.`,
       });
     }
   },

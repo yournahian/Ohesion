@@ -2,6 +2,8 @@ import { Events, EmbedBuilder } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { isUserOnMessageCooldown } from '../utils/cooldowns.js';
 import { getLevelFromXp, POINTS_PER_LEVEL } from '../utils/levelCalculator.js';
+import { trackMessage } from '../utils/messageTracker.js';
+import { inspectMessage } from '../utils/autoModEngine.js';
 
 export default {
   name: Events.MessageCreate,
@@ -9,10 +11,20 @@ export default {
     // Ignore bots, webhooks, and direct messages
     if (!message.guild || message.author.bot) return;
 
+    // 🛡️ Cohesion Shield: AutoMod Inspection (Links, Invites, Banned Words, Spam)
+    const autoModResult = await inspectMessage(message);
+    if (autoModResult.handled) {
+      // Violating message was auto-deleted and member punished. Abort XP processing.
+      return;
+    }
+
     const guildId = message.guild.id;
     const userId = message.author.id;
 
-    // 1-minute anti-spam cooldown
+    // Track message activity across channel & user
+    trackMessage(guildId, message.channel.id, userId);
+
+    // 1-minute anti-spam cooldown for XP rewards
     if (isUserOnMessageCooldown(guildId, userId)) {
       return;
     }
@@ -48,6 +60,7 @@ export default {
           xp: earnedXp,
           level: newLevel,
           total_points: 0,
+          messages_sent: 1,
         });
         return;
       }
@@ -58,6 +71,8 @@ export default {
 
       const newXp = currentXp + earnedXp;
       const calculatedLevel = getLevelFromXp(newXp);
+
+      const currentMessages = Number(userRecord.messages_sent || 0) + 1;
 
       if (calculatedLevel > currentLevel) {
         const levelsGained = calculatedLevel - currentLevel;
@@ -70,6 +85,7 @@ export default {
             xp: newXp,
             level: calculatedLevel,
             total_points: updatedPoints,
+            messages_sent: currentMessages,
             updated_at: new Date().toISOString(),
           })
           .eq('guild_id', guildId)
@@ -94,22 +110,23 @@ export default {
 
         // Level Up Announcement
         const levelUpEmbed = new EmbedBuilder()
-          .setColor(0xffb703)
+          .setColor(0x5865f2)
           .setTitle('🎉 Level Up!')
           .setDescription(
             `Congratulations <@${userId}>! You've reached **Level ${calculatedLevel}**!\n\n` +
-            `🪙 **+${bonusPoints} Quest Points** have been added to your balance.${roleAwardText}`
+            `🪙 **+${bonusPoints} Cohesion Points (CP)** have been added to your balance.${roleAwardText}`
           )
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-          .setFooter({ text: 'Questify Gamification System' });
+          .setFooter({ text: 'Cohesion Gamification System' });
 
         await message.channel.send({ embeds: [levelUpEmbed] }).catch(() => null);
       } else {
-        // Just update XP
+        // Just update XP & message count
         await supabase
           .from('users')
           .update({
             xp: newXp,
+            messages_sent: currentMessages,
             updated_at: new Date().toISOString(),
           })
           .eq('guild_id', guildId)

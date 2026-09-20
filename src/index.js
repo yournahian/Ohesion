@@ -53,7 +53,7 @@ http
       }
 
       res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('Questify Bot is active and healthy!\n');
+      res.end('Cohesion Bot is active and healthy!\n');
     } catch (err) {
       console.error('[HTTP SERVER ERROR]:', err);
       res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -81,7 +81,7 @@ const client = new Client({
 client.commands = new Collection();
 
 async function main() {
-  console.log('--- Initializing Discord Engagement Bot ---');
+  console.log('--- Initializing Cohesion Bot ---');
 
   // Load slash commands
   const commandsPath = path.join(__dirname, 'commands');

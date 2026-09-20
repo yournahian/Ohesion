@@ -4,7 +4,7 @@ import { buildHubPayload } from '../../utils/hubView.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('hub')
-    .setDescription('Open the visual Questify Community Hub to view stats, claim daily QP, and browse raffles.'),
+    .setDescription('Open the visual Cohesion Community Hub to view stats, claim daily CP, and browse raffles.'),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -17,7 +17,7 @@ export default {
     if (!guild) {
       const botId = interaction.client.user?.id || '1550544108349554799';
       return interaction.editReply({
-        content: `⚠️ Questify is not added to this server as a bot. Please invite Questify to this server using this link:\nhttps://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
+        content: `⚠️ Cohesion is not added to this server as a bot. Please invite Cohesion to this server using this link:\nhttps://discord.com/oauth2/authorize?client_id=${botId}&permissions=8&scope=bot%20applications.commands`,
       });
     }
 

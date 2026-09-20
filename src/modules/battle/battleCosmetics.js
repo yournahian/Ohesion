@@ -109,7 +109,7 @@ export async function purchaseCosmeticItem({ guildId, discordId, itemId }) {
   if (currentPoints < item.cost) {
     return {
       success: false,
-      message: `🪙 **Insufficient Quest Points:** You need **${item.cost} QP**, but only have **${currentPoints} QP**.`,
+      message: `🪙 **Insufficient Cohesion Points:** You need **${item.cost} CP**, but only have **${currentPoints} CP**.`,
     };
   }
 

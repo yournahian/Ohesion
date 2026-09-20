@@ -76,10 +76,10 @@ export default {
         .setTitle('✅ Quest Submitted Successfully!')
         .setDescription(
           `Your post has been submitted for verification:\n🔗 **[View Submission](${url})**\n\n` +
-          `🪙 **+${QUEST_POINTS_REWARD} Engage Points** have been credited to your account (pending admin review).\n` +
-          `Total Points: **${updatedPoints.toLocaleString()}**`
+          `🪙 **+${QUEST_POINTS_REWARD} Cohesion Points (CP)** have been credited to your account (pending admin review).\n` +
+          `Total Balance: **${updatedPoints.toLocaleString()} CP**`
         )
-        .setFooter({ text: `Submission ID: ${submission.submission_id}` })
+        .setFooter({ text: `Submission ID: ${submission.submission_id} • Cohesion Quests` })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });

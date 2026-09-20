@@ -5,6 +5,7 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
+import { getCurrencyType } from './guildSettings.js';
 
 /**
  * Builds the visual Discord Embed and Action Buttons for a live Auction card.
@@ -15,19 +16,21 @@ export function buildAuctionPayload(auction) {
 
   const highestBid = Number(auction.current_highest_bid || 0);
   const minNextBid = highestBid > 0 ? highestBid + Number(auction.min_increment) : Number(auction.starting_bid);
+  const currType = auction.guild_id ? getCurrencyType(auction.guild_id) : 'points';
+  const currLabel = currType === 'xp' ? 'XP' : 'CP';
 
   const embed = new EmbedBuilder()
     .setColor(isExpired || !auction.is_active ? 0x6c757d : 0xffd166) // Gold if active, gray if ended
     .setTitle(`🔨 Community Auction: ${auction.item_title}`)
     .setDescription(
       `${auction.description ? `${auction.description}\n\n` : ''}` +
-      `**Current Highest Bid**: **${highestBid > 0 ? `${highestBid.toLocaleString()} QP` : 'No bids yet'}**\n` +
+      `**Current Highest Bid**: **${highestBid > 0 ? `${highestBid.toLocaleString()} ${currLabel}` : 'No bids yet'}**\n` +
       `**Highest Bidder**: ${auction.highest_bidder_id ? `<@${auction.highest_bidder_id}>` : '*None*'}\n` +
-      `**Minimum Next Bid**: **${minNextBid.toLocaleString()} QP**\n` +
-      `**Min Increment**: **+${auction.min_increment} QP**\n` +
+      `**Minimum Next Bid**: **${minNextBid.toLocaleString()} ${currLabel}**\n` +
+      `**Min Increment**: **+${auction.min_increment} ${currLabel}**\n` +
       `**Status**: ${!auction.is_active || isExpired ? '🛑 **Auction Ended**' : `⏳ Ends <t:${endTimestamp}:R>`}`
     )
-    .setFooter({ text: `Auction ID: ${auction.auction_id} • Questify Escrow Protected` })
+    .setFooter({ text: `Auction ID: ${auction.auction_id} • Cohesion Escrow Protected (${currLabel})` })
     .setTimestamp();
 
   const actionRow = new ActionRowBuilder();
@@ -36,7 +39,7 @@ export function buildAuctionPayload(auction) {
     actionRow.addComponents(
       new ButtonBuilder()
         .setCustomId(`auction_bid_${auction.auction_id}`)
-        .setLabel('Place Bid')
+        .setLabel(`Place Bid (${currLabel})`)
         .setEmoji('💰')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
@@ -90,36 +93,40 @@ export async function executeBid({ auctionId, guildId, discordId, bidAmount, cli
     return { success: false, message: 'You already hold the highest bid!' };
   }
 
+  const currType = getCurrencyType(guildId);
+  const currLabel = currType === 'xp' ? 'XP' : 'CP';
+  const balanceField = currType === 'xp' ? 'xp' : 'total_points';
+
   const currentHighest = Number(auction.current_highest_bid || 0);
   const minRequired = currentHighest > 0 ? currentHighest + Number(auction.min_increment) : Number(auction.starting_bid);
 
   if (bidAmount < minRequired) {
     return {
       success: false,
-      message: `Your bid of **${bidAmount} QP** is too low! Minimum required bid is **${minRequired} QP**.`,
+      message: `Your bid of **${bidAmount} ${currLabel}** is too low! Minimum required bid is **${minRequired} ${currLabel}**.`,
     };
   }
 
-  // 2. Check bidder's QP balance
+  // 2. Check bidder's balance (XP or CP)
   const { data: bidderRecord } = await supabase
     .from('users')
-    .select('total_points')
+    .select(balanceField)
     .eq('guild_id', guildId)
     .eq('discord_id', discordId)
     .maybeSingle();
 
-  const bidderBalance = Number(bidderRecord?.total_points || 0);
+  const bidderBalance = Number(bidderRecord?.[balanceField] || 0);
   if (bidderBalance < bidAmount) {
     return {
       success: false,
-      message: `Insufficient Quest Points! You have **${bidderBalance} QP**, but bid requires **${bidAmount} QP**.`,
+      message: `Insufficient ${currLabel === 'XP' ? 'Experience Points' : 'Cohesion Points'}! You have **${bidderBalance} ${currLabel}**, but bid requires **${bidAmount} ${currLabel}**.`,
     };
   }
 
   // 3. Deduct bid amount from new bidder
   await supabase
     .from('users')
-    .update({ total_points: bidderBalance - bidAmount })
+    .update({ [balanceField]: bidderBalance - bidAmount })
     .eq('guild_id', guildId)
     .eq('discord_id', discordId);
 
@@ -130,15 +137,15 @@ export async function executeBid({ auctionId, guildId, discordId, bidAmount, cli
   if (previousBidderId && previousBidAmount > 0) {
     const { data: prevRecord } = await supabase
       .from('users')
-      .select('total_points')
+      .select(balanceField)
       .eq('guild_id', guildId)
       .eq('discord_id', previousBidderId)
       .maybeSingle();
 
-    const prevBalance = Number(prevRecord?.total_points || 0);
+    const prevBalance = Number(prevRecord?.[balanceField] || 0);
     await supabase
       .from('users')
-      .update({ total_points: prevBalance + previousBidAmount })
+      .update({ [balanceField]: prevBalance + previousBidAmount })
       .eq('guild_id', guildId)
       .eq('discord_id', previousBidderId);
   }
@@ -185,7 +192,7 @@ export async function executeBid({ auctionId, guildId, discordId, bidAmount, cli
 
   return {
     success: true,
-    message: `✅ **Bid Placed!** You are now the highest bidder with **${bidAmount.toLocaleString()} QP**!\n(Remaining balance: ${(bidderBalance - bidAmount).toLocaleString()} QP)`,
+    message: `✅ **Bid Placed!** You are now the highest bidder with **${bidAmount.toLocaleString()} ${currLabel}**!\n(Remaining balance: ${(bidderBalance - bidAmount).toLocaleString()} ${currLabel})`,
   };
 }
 
@@ -210,6 +217,8 @@ export async function concludeAuction(auctionId, client) {
 
     const hasWinner = Boolean(auction.highest_bidder_id && Number(auction.current_highest_bid) > 0);
     const winningBid = Number(auction.current_highest_bid || 0);
+    const currType = auction.guild_id ? getCurrencyType(auction.guild_id) : 'points';
+    const currLabel = currType === 'xp' ? 'XP' : 'CP';
 
     // 1. Update the original Discord auction card in the channel
     if (auction.channel_id && auction.message_id && client) {
@@ -231,7 +240,7 @@ export async function concludeAuction(auctionId, client) {
               hasWinner
                 ? `The auction for **${auction.item_title}** has officially closed!\n\n` +
                   `👑 **Winner:** <@${auction.highest_bidder_id}>\n` +
-                  `💰 **Winning Bid:** **${winningBid.toLocaleString()} QP**\n` +
+                  `💰 **Winning Bid:** **${winningBid.toLocaleString()} ${currLabel}**\n` +
                   `🎁 **Item:** **${auction.item_title}**\n\n` +
                   `📢 **Claim Instructions:** Server Admin, please contact <@${auction.highest_bidder_id}> to distribute the reward!`
                 : `The auction for **${auction.item_title}** has ended with no bids placed.`
@@ -255,7 +264,8 @@ export async function concludeAuction(auctionId, client) {
         if (guild) {
           const logChannel = guild.channels.cache.find(
             c =>
-              (c.name === 'questify-logs' ||
+              (c.name === 'cohesion-logs' ||
+                c.name === 'questify-logs' ||
                 c.name === 'admin-logs' ||
                 c.name === 'logs' ||
                 c.name === 'mod-logs') &&
