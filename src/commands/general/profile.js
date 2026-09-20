@@ -68,7 +68,6 @@ export default {
       )
       .setFooter({ text: 'Cohesion Gamification Ecosystem' })
       .setTimestamp();
-      .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });
   },

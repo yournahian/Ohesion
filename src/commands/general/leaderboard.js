@@ -64,7 +64,6 @@ export default {
       .setDescription(leaderboardList)
       .setFooter({ text: 'Earn CP & XP by completing quests, active chat & voice • Cohesion' })
       .setTimestamp();
-      .setTimestamp();
 
     if (guild) {
       embed.setThumbnail(guild.iconURL({ dynamic: true }));
