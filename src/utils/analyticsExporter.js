@@ -4,15 +4,17 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelSelectMenuBuilder,
-  UserSelectMenuBuilder,
   ChannelType,
   AttachmentBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
-import { supabase } from '../lib/supabase.js';
-import { getUserMessageCount, getUserChannelBreakdown, auditChannelMessages, getChannelUserStats } from './messageTracker.js';
 
 /**
  * Builds the visual Member Analytics & CSV Data Export Dashboard.
+ * "Date Range Filter" is no longer an isolated button; it is natively embedded
+ * into Full Server Export, Channel Audit, and Single Member Dossier.
  */
 export function buildExportDashboard(guildId, guildName) {
   const embed = new EmbedBuilder()
@@ -21,33 +23,26 @@ export function buildExportDashboard(guildId, guildName) {
     .setDescription(
       `Choose how you would like to audit and export community activity and member records:\n\n` +
       `🌐 **1. Full Server Export**\n` +
-      `Instant all-time spreadsheet of all tracked members with messages, points, XP, level, wallets, and Twitter.\n\n` +
-      `📅 **2. Date Range Filter**\n` +
-      `Filter active members or joins within a specific timeframe (e.g. \`2026-09-01\` to \`2026-09-20\`).\n\n` +
-      `📢 **3. Channel-Specific Message Audit**\n` +
-      `Select any specific text channel to count messages and export a channel-exclusive talker leaderboard.\n\n` +
-      `👤 **4. Single Member Dossier**\n` +
-      `Inspect an individual member's full profile, quest history, purchases, and download a dedicated 1-member CSV.`
+      `Instant spreadsheet of all members with messages, points, XP, level, wallets, and Twitter. Includes optional date range filter (leave blank for All-Time).\n\n` +
+      `📢 **2. Channel-Specific Message Audit**\n` +
+      `Select any text channel and set an optional date range to count human messages and export a channel-exclusive talker leaderboard.\n\n` +
+      `👤 **3. Single Member Dossier**\n` +
+      `Lookup any member by User ID or Username with an optional date range to inspect their complete activity, quest history, and download a dedicated 1-member CSV.`
     )
     .setFooter({ text: 'Cohesion Data Intelligence • Real-time CSV Generation' })
     .setTimestamp();
 
   const actionRow1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('btn_export_all')
+      .setCustomId('btn_export_all_prompt')
       .setLabel('Full Server Export')
       .setEmoji('🌐')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId('btn_export_daterange')
-      .setLabel('Date Range Filter')
-      .setEmoji('📅')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
       .setCustomId('btn_export_channel_prompt')
       .setLabel('Channel Audit')
       .setEmoji('📢')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('btn_export_single_user_prompt')
       .setLabel('Single Member Dossier')
@@ -56,6 +51,38 @@ export function buildExportDashboard(guildId, guildName) {
   );
 
   return { embeds: [embed], components: [actionRow1], ephemeral: true };
+}
+
+/**
+ * Builds the Modal for Full Server Export with optional Date Range filtering.
+ */
+export function buildFullServerExportModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_export_full_server')
+    .setTitle('🌐 Full Server Member Export');
+
+  const startDateInput = new TextInputBuilder()
+    .setCustomId('input_export_start_date')
+    .setLabel('Start Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-01 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
+
+  const endDateInput = new TextInputBuilder()
+    .setCustomId('input_export_end_date')
+    .setLabel('End Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-21 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(startDateInput),
+    new ActionRowBuilder().addComponents(endDateInput)
+  );
+
+  return modal;
 }
 
 /**
@@ -71,34 +98,94 @@ export function buildChannelSelector() {
 
   const embed = new EmbedBuilder()
     .setColor(0x4361ee)
-    .setTitle('📢 Channel-Specific Message Audit')
+    .setTitle('📢 Step 1: Select Channel to Audit')
     .setDescription(
       `Select any text or announcement channel from the menu below.\n\n` +
-      `Cohesion will audit message counts per user for that channel and generate a channel-specific CSV leaderboard.`
+      `After selecting, you will be able to set an optional **Date Range** and **Message Depth** to filter human messages.`
     );
 
   return { embeds: [embed], components: [row], ephemeral: true };
 }
 
 /**
- * Builds the User Selector Menu for single-member dossiers.
+ * Builds the Modal for Channel Message Audit with Date Range.
  */
-export function buildUserSelector() {
-  const userSelect = new UserSelectMenuBuilder()
-    .setCustomId('select_export_user')
-    .setPlaceholder('Select a member to inspect and export...');
+export function buildChannelAuditModal(channelId, channelName) {
+  const modal = new ModalBuilder()
+    .setCustomId(`modal_export_channel_${channelId}`)
+    .setTitle(`📢 Audit #${(channelName || 'channel').slice(0, 30)}`);
 
-  const row = new ActionRowBuilder().addComponents(userSelect);
+  const startDateInput = new TextInputBuilder()
+    .setCustomId('input_channel_start_date')
+    .setLabel('Start Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-01 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x7209b7)
-    .setTitle('👤 Single Member Deep Dossier')
-    .setDescription(
-      `Select a server member from the menu below.\n\n` +
-      `Cohesion will compile their complete analytics card: total messages, channel breakdown, wallet, socials, quest count, and download a personal CSV.`
-    );
+  const endDateInput = new TextInputBuilder()
+    .setCustomId('input_channel_end_date')
+    .setLabel('End Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-21 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
 
-  return { embeds: [embed], components: [row], ephemeral: true };
+  const limitInput = new TextInputBuilder()
+    .setCustomId('input_channel_depth')
+    .setLabel('Message Scan Depth (e.g. 200, 500, 1000)')
+    .setValue('500')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(4)
+    .setRequired(false);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(startDateInput),
+    new ActionRowBuilder().addComponents(endDateInput),
+    new ActionRowBuilder().addComponents(limitInput)
+  );
+
+  return modal;
+}
+
+/**
+ * Builds the Modal for Single Member Dossier (avoids broken 25-item select menus).
+ */
+export function buildSingleUserDossierModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_export_single_user')
+    .setTitle('👤 Single Member Dossier & Audit');
+
+  const userInput = new TextInputBuilder()
+    .setCustomId('input_dossier_user')
+    .setLabel('Member ID, Username, or @Mention')
+    .setPlaceholder('e.g. 1009827896153608212 or @Nyxoy or Nyxoy')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true);
+
+  const startDateInput = new TextInputBuilder()
+    .setCustomId('input_dossier_start_date')
+    .setLabel('Start Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-01 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
+
+  const endDateInput = new TextInputBuilder()
+    .setCustomId('input_dossier_end_date')
+    .setLabel('End Date (YYYY-MM-DD, Optional)')
+    .setPlaceholder('e.g. 2026-09-21 (leave blank for all-time)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(10)
+    .setRequired(false);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(userInput),
+    new ActionRowBuilder().addComponents(startDateInput),
+    new ActionRowBuilder().addComponents(endDateInput)
+  );
+
+  return modal;
 }
 
 /**
@@ -114,6 +201,7 @@ export function generateUsersCsvAttachment(users, filename = 'cohesion_members_e
     'total_points',
     'wallet_address',
     'twitter_handle',
+    'joined_at',
     'created_at',
   ];
 
@@ -122,13 +210,14 @@ export function generateUsersCsvAttachment(users, filename = 'cohesion_members_e
   for (const u of users) {
     const row = [
       `"${u.discord_id || ''}"`,
-      `"${(u.username || '').replace(/"/g, '""')}"`,
+      `"${(u.username || 'Member').replace(/"/g, '""')}"`,
       u.messages_sent ?? 0,
       u.level ?? 1,
       u.xp ?? 0,
       u.total_points ?? 0,
-      `"${u.wallet_address || ''}"`,
+      `"${u.wallet_address || u.evm_address || ''}"`,
       `"${u.twitter_handle || ''}"`,
+      `"${u.joined_at || ''}"`,
       `"${u.created_at || ''}"`,
     ];
     rows.push(row.join(','));
@@ -141,21 +230,22 @@ export function generateUsersCsvAttachment(users, filename = 'cohesion_members_e
 /**
  * Converts channel message counts into a CSV AttachmentBuilder.
  */
-export function generateChannelCsvAttachment(channelName, channelStatsMap, guild) {
-  const headers = ['rank', 'discord_id', 'username', 'channel_name', 'messages_count'];
+export function generateChannelCsvAttachment(channelName, channelStatsMap, guild, dateRangeLabel = '') {
+  const headers = ['rank', 'discord_id', 'username', 'channel_name', 'messages_count', 'timeframe'];
   const rows = [headers.join(',')];
 
   const sorted = Array.from(channelStatsMap.entries()).sort((a, b) => b[1] - a[1]);
 
   sorted.forEach(([userId, count], index) => {
     const member = guild?.members?.cache?.get(userId);
-    const tag = member?.user?.tag || member?.displayName || 'Unknown';
+    const tag = member?.user?.tag || member?.user?.username || member?.displayName || 'Unknown';
     const row = [
       index + 1,
       `"${userId}"`,
       `"${tag.replace(/"/g, '""')}"`,
       `"#${channelName}"`,
       count,
+      `"${dateRangeLabel || 'All-Time'}"`,
     ];
     rows.push(row.join(','));
   });

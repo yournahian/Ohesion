@@ -20,7 +20,9 @@ import { supabase } from '../lib/supabase.js';
 import {
   buildExportDashboard,
   buildChannelSelector,
-  buildUserSelector,
+  buildFullServerExportModal,
+  buildChannelAuditModal,
+  buildSingleUserDossierModal,
   generateUsersCsvAttachment,
   generateChannelCsvAttachment,
 } from '../utils/analyticsExporter.js';
@@ -2467,8 +2469,8 @@ export default {
         return interaction.reply(payload);
       }
 
-      // --- ADMIN: FULL SERVER CSV EXPORT ---
-      if (customId === 'btn_export_all') {
+      // --- ADMIN: PROMPT FULL SERVER EXPORT MODAL ---
+      if (customId === 'btn_export_all' || customId === 'btn_export_all_prompt' || customId === 'btn_export_daterange') {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
             content: '⛔ You need `Administrator` or `Manage Server` permissions to export user data.',
@@ -2476,71 +2478,7 @@ export default {
           });
         }
 
-        await interaction.deferReply({ ephemeral: true });
-
-        const { data: users, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('guild_id', guildId)
-          .order('total_points', { ascending: false });
-
-        if (error || !users || users.length === 0) {
-          return interaction.editReply({
-            content: '⚠️ No user profiles found for this server or database query failed.',
-          });
-        }
-
-        // Enrich with live message counts if available
-        const enrichedUsers = users.map(u => ({
-          ...u,
-          messages_sent: Math.max(Number(u.messages_sent || 0), getUserMessageCount(guildId, u.discord_id)),
-        }));
-
-        const attachment = generateUsersCsvAttachment(
-          enrichedUsers,
-          `cohesion_all_members_${guildId}_${new Date().toISOString().slice(0, 10)}.csv`
-        );
-
-        return interaction.editReply({
-          content: `✅ **Full Server Export Complete!** Found **${users.length}** member records with message counts, levels, XP, and wallets.`,
-          files: [attachment],
-        });
-      }
-
-      // --- ADMIN: PROMPT DATE RANGE FILTER MODAL ---
-      if (customId === 'btn_export_daterange') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions to export user data.',
-            ephemeral: true,
-          });
-        }
-
-        const modal = new ModalBuilder()
-          .setCustomId('modal_export_daterange')
-          .setTitle('📅 Filter Member Data by Date');
-
-        const startDateInput = new TextInputBuilder()
-          .setCustomId('input_export_start_date')
-          .setLabel('Start Date (YYYY-MM-DD)')
-          .setPlaceholder('e.g. 2026-09-01')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(10)
-          .setRequired(true);
-
-        const endDateInput = new TextInputBuilder()
-          .setCustomId('input_export_end_date')
-          .setLabel('End Date (YYYY-MM-DD)')
-          .setPlaceholder('e.g. 2026-09-20')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(10)
-          .setRequired(true);
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(startDateInput),
-          new ActionRowBuilder().addComponents(endDateInput)
-        );
-
+        const modal = buildFullServerExportModal();
         return interaction.showModal(modal);
       }
 
@@ -2557,7 +2495,7 @@ export default {
         return interaction.reply(payload);
       }
 
-      // --- ADMIN: PROMPT SINGLE USER SELECTOR ---
+      // --- ADMIN: PROMPT SINGLE USER MODAL (NO CLUNKY SELECT MENU) ---
       if (customId === 'btn_export_single_user_prompt') {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({
@@ -2566,8 +2504,8 @@ export default {
           });
         }
 
-        const payload = buildUserSelector();
-        return interaction.reply(payload);
+        const modal = buildSingleUserDossierModal();
+        return interaction.showModal(modal);
       }
 
       // --- ADMIN: DOWNLOAD SINGLE USER CSV ---
@@ -5753,65 +5691,367 @@ export default {
         });
       }
 
-      // --- MODAL: EXPORT USERLIST BY DATE RANGE ---
-      if (modalId === 'modal_export_daterange') {
+      // --- MODAL: FULL SERVER MEMBER EXPORT (WITH OPTIONAL DATE RANGE) ---
+      if (modalId === 'modal_export_full_server' || modalId === 'modal_export_daterange') {
         await interaction.deferReply({ ephemeral: true });
 
-        const startDateStr = interaction.fields.getTextInputValue('input_export_start_date').trim();
-        const endDateStr = interaction.fields.getTextInputValue('input_export_end_date').trim();
+        const startDateStr = interaction.fields.getTextInputValue('input_export_start_date')?.trim() || '';
+        const endDateStr = interaction.fields.getTextInputValue('input_export_end_date')?.trim() || '';
 
-        const startMs = new Date(startDateStr).getTime();
-        const endMs = new Date(`${endDateStr}T23:59:59.999Z`).getTime();
+        let startMs = null;
+        let endMs = null;
 
-        if (isNaN(startMs) || isNaN(endMs)) {
+        if (startDateStr) {
+          startMs = new Date(startDateStr).getTime();
+          if (isNaN(startMs)) {
+            return interaction.editReply({ content: '❌ Invalid Start Date format! Please use `YYYY-MM-DD` (e.g. `2026-09-01`).' });
+          }
+        }
+        if (endDateStr) {
+          endMs = new Date(`${endDateStr}T23:59:59.999Z`).getTime();
+          if (isNaN(endMs)) {
+            return interaction.editReply({ content: '❌ Invalid End Date format! Please use `YYYY-MM-DD` (e.g. `2026-09-20`).' });
+          }
+        }
+        if (startMs && endMs && startMs > endMs) {
+          return interaction.editReply({ content: '❌ Start Date cannot be after End Date!' });
+        }
+
+        // 1. Fetch ALL users from Supabase via pagination loop (avoid default 1,000 row cap)
+        let allDbUsers = [];
+        let page = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('guild_id', guildId)
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (error || !data || data.length === 0) break;
+          allDbUsers.push(...data);
+          if (data.length < pageSize) break;
+          page++;
+        }
+
+        // 2. Fetch all Guild members from Discord to guarantee zero member data loss
+        const guildMembers = await interaction.guild?.members?.fetch().catch(() => null);
+
+        // Map database records by discord_id
+        const userMap = new Map();
+        for (const u of allDbUsers) {
+          userMap.set(u.discord_id, { ...u });
+        }
+
+        // Add any guild members who are in Discord but don't have a DB record yet
+        if (guildMembers) {
+          for (const [mId, m] of guildMembers.entries()) {
+            if (m.user.bot) continue;
+            if (!userMap.has(mId)) {
+              userMap.set(mId, {
+                guild_id: guildId,
+                discord_id: mId,
+                username: m.user.username || m.user.tag || m.displayName,
+                messages_sent: 0,
+                level: 1,
+                xp: 0,
+                total_points: 0,
+                wallet_address: '',
+                twitter_handle: '',
+                joined_at: m.joinedAt?.toISOString() || '',
+                created_at: m.joinedAt?.toISOString() || '',
+              });
+            }
+          }
+        }
+
+        // Enrich every user with resolved real username & live message count
+        const enrichedUsers = [];
+        const missingUsernamesToSync = [];
+
+        for (const u of userMap.values()) {
+          const member = guildMembers?.get(u.discord_id);
+          const resolvedUsername =
+            member?.user?.username ||
+            member?.user?.tag ||
+            member?.displayName ||
+            u.username ||
+            'Member';
+
+          const liveMsgCount = getUserMessageCount(guildId, u.discord_id);
+          const totalMsgs = Math.max(Number(u.messages_sent || 0), liveMsgCount);
+
+          if (!u.username && resolvedUsername !== 'Member') {
+            missingUsernamesToSync.push({ discord_id: u.discord_id, username: resolvedUsername });
+          }
+
+          u.username = resolvedUsername;
+          u.messages_sent = totalMsgs;
+          u.joined_at = member?.joinedAt?.toISOString() || u.joined_at || '';
+
+          // Apply Date Range filter if provided
+          if (startMs || endMs) {
+            const cTime = u.created_at ? new Date(u.created_at).getTime() : 0;
+            const uTime = u.updated_at ? new Date(u.updated_at).getTime() : 0;
+            const jTime = u.joined_at ? new Date(u.joined_at).getTime() : 0;
+            const inRange =
+              (startMs ? (cTime >= startMs || uTime >= startMs || jTime >= startMs) : true) &&
+              (endMs ? (cTime <= endMs || uTime <= endMs || jTime <= endMs) : true);
+            if (!inRange) continue;
+          }
+
+          enrichedUsers.push(u);
+        }
+
+        enrichedUsers.sort((a, b) => (b.total_points - a.total_points) || (b.messages_sent - a.messages_sent));
+
+        if (enrichedUsers.length === 0) {
           return interaction.editReply({
-            content: '❌ Invalid date format! Please use the `YYYY-MM-DD` format (e.g. `2026-09-01`).',
+            content: `⚠️ No member records found active or joined between **${startDateStr || 'Start'}** and **${endDateStr || 'End'}**.`,
           });
         }
 
-        if (startMs > endMs) {
+        // Sync usernames back to Supabase in background (up to 50 users at a time)
+        if (missingUsernamesToSync.length > 0) {
+          (async () => {
+            for (const item of missingUsernamesToSync.slice(0, 50)) {
+              await supabase
+                .from('users')
+                .update({ username: item.username })
+                .eq('guild_id', guildId)
+                .eq('discord_id', item.discord_id)
+                .catch(() => null);
+            }
+          })().catch(() => null);
+        }
+
+        const dateSuffix = (startDateStr || endDateStr) ? `_${startDateStr || 'all'}_to_${endDateStr || 'now'}` : `_alltime`;
+        const filename = `cohesion_members_${guildId}${dateSuffix}.csv`;
+        const attachment = generateUsersCsvAttachment(enrichedUsers, filename);
+
+        const filterSummary = (startDateStr || endDateStr)
+          ? `📅 **Date Filter:** \`${startDateStr || 'All-Time'}\` to \`${endDateStr || 'Present'}\`\n`
+          : `📅 **Timeframe:** **All-Time Full Server Export**\n`;
+
+        return interaction.editReply({
+          content:
+            `✅ **Full Server Export Complete!**\n` +
+            filterSummary +
+            `👥 **Total Members Exported:** **${enrichedUsers.length.toLocaleString()}** (Zero data loss, usernames resolved)\n` +
+            `📊 Download the spreadsheet attached below:`,
+          files: [attachment],
+        });
+      }
+
+      // --- MODAL: SINGLE MEMBER DOSSIER & AUDIT ---
+      if (modalId === 'modal_export_single_user') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const rawUserInput = interaction.fields.getTextInputValue('input_dossier_user')?.trim() || '';
+        const startDateStr = interaction.fields.getTextInputValue('input_dossier_start_date')?.trim() || '';
+        const endDateStr = interaction.fields.getTextInputValue('input_dossier_end_date')?.trim() || '';
+
+        let startMs = null;
+        let endMs = null;
+        if (startDateStr) {
+          startMs = new Date(startDateStr).getTime();
+          if (isNaN(startMs)) return interaction.editReply({ content: '❌ Invalid Start Date! Use `YYYY-MM-DD`.' });
+        }
+        if (endDateStr) {
+          endMs = new Date(`${endDateStr}T23:59:59.999Z`).getTime();
+          if (isNaN(endMs)) return interaction.editReply({ content: '❌ Invalid End Date! Use `YYYY-MM-DD`.' });
+        }
+        if (startMs && endMs && startMs > endMs) {
+          return interaction.editReply({ content: '❌ Start Date cannot be after End Date!' });
+        }
+
+        // Clean user input: strip mention tags (<@123...>)
+        let targetUserId = rawUserInput.replace(/[<@!&>]/g, '').trim();
+        let targetMember = null;
+
+        // Try direct fetch by 17-20 digit numeric ID
+        if (/^\d{17,20}$/.test(targetUserId)) {
+          targetMember = await interaction.guild?.members?.fetch(targetUserId).catch(() => null);
+        }
+
+        // If not found or user typed username, search guild cache
+        if (!targetMember) {
+          const query = rawUserInput.toLowerCase().replace(/^@/, '');
+          const searchResults = await interaction.guild?.members?.search({ query, limit: 1 }).catch(() => null);
+          if (searchResults && searchResults.size > 0) {
+            targetMember = searchResults.first();
+            targetUserId = targetMember.id;
+          }
+        }
+
+        // If still not found, check Supabase username
+        if (!targetMember && !/^\d{17,20}$/.test(targetUserId)) {
+          const { data: dbMatch } = await supabase
+            .from('users')
+            .select('discord_id')
+            .eq('guild_id', guildId)
+            .ilike('username', `%${rawUserInput}%`)
+            .limit(1)
+            .maybeSingle();
+          if (dbMatch) {
+            targetUserId = dbMatch.discord_id;
+            targetMember = await interaction.guild?.members?.fetch(targetUserId).catch(() => null);
+          }
+        }
+
+        if (!targetUserId) {
           return interaction.editReply({
-            content: '❌ Start Date cannot be after End Date!',
+            content: `❌ Could not find any member matching **"${rawUserInput}"**.\nPlease provide their exact 18-digit Discord User ID or valid username/mention.`,
           });
         }
 
-        const { data: allUsers, error } = await supabase
+        const targetUser = targetMember?.user || await interaction.client.users.fetch(targetUserId).catch(() => null);
+        const resolvedTag = targetMember?.displayName || targetUser?.tag || targetUser?.username || 'Member';
+
+        // Fetch DB record
+        const { data: userRecord } = await supabase
           .from('users')
           .select('*')
           .eq('guild_id', guildId)
-          .order('total_points', { ascending: false });
+          .eq('discord_id', targetUserId)
+          .maybeSingle();
 
-        if (error || !allUsers || allUsers.length === 0) {
-          return interaction.editReply({ content: '⚠️ No users found in database for this server.' });
+        // Count quests completed in timeframe
+        let questQuery = supabase
+          .from('quest_submissions')
+          .select('*', { count: 'exact', head: true })
+          .eq('guild_id', guildId)
+          .eq('discord_id', targetUserId);
+        if (startMs) questQuery = questQuery.gte('created_at', new Date(startMs).toISOString());
+        if (endMs) questQuery = questQuery.lte('created_at', new Date(endMs).toISOString());
+        const { count: questCount } = await questQuery;
+
+        // Count raffle tickets in timeframe
+        let raffleQuery = supabase
+          .from('raffle_entries')
+          .select('tickets_bought, created_at')
+          .eq('discord_id', targetUserId);
+        if (startMs) raffleQuery = raffleQuery.gte('created_at', new Date(startMs).toISOString());
+        if (endMs) raffleQuery = raffleQuery.lte('created_at', new Date(endMs).toISOString());
+        const { data: raffleEntries } = await raffleQuery;
+        const totalTickets = raffleEntries?.reduce((sum, r) => sum + (r.tickets_bought || 0), 0) || 0;
+
+        const liveMsgCount = getUserMessageCount(guildId, targetUserId);
+        const totalMessages = Math.max(Number(userRecord?.messages_sent || 0), liveMsgCount);
+        const channelBreakdown = getUserChannelBreakdown(guildId, targetUserId);
+
+        const singleUserData = [{
+          discord_id: targetUserId,
+          username: resolvedTag,
+          messages_sent: totalMessages,
+          level: userRecord?.level || 1,
+          xp: userRecord?.xp || 0,
+          total_points: userRecord?.total_points || 0,
+          wallet_address: userRecord?.wallet_address || userRecord?.evm_address || '',
+          twitter_handle: userRecord?.twitter_handle || '',
+          joined_at: targetMember?.joinedAt?.toISOString() || '',
+          created_at: userRecord?.created_at || targetMember?.joinedAt?.toISOString() || '',
+        }];
+
+        const dateLabel = (startDateStr || endDateStr) ? ` (${startDateStr || 'All'} to ${endDateStr || 'Now'})` : '';
+        const attachment = generateUsersCsvAttachment(
+          singleUserData,
+          `dossier_${targetUser?.username || targetUserId}${dateLabel.replace(/[^a-z0-9_-]/gi, '_')}.csv`
+        );
+
+        const breakdownStr = channelBreakdown.length > 0
+          ? channelBreakdown.slice(0, 4).map(c => `• <#${c.channelId}>: **${c.count}** msgs`).join('\n')
+          : '• *No channel breakdown recorded yet*';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x7209b7)
+          .setTitle(`👤 Member Dossier: ${resolvedTag}`)
+          .setThumbnail(targetUser?.displayAvatarURL?.({ dynamic: true }) || null)
+          .setDescription(
+            `Comprehensive member audit and intelligence card for <@${targetUserId}>:\n\n` +
+            `🆔 **Discord ID:** \`${targetUserId}\`\n` +
+            `📅 **Server Joined:** ${targetMember?.joinedAt ? `<t:${Math.floor(targetMember.joinedAt.getTime() / 1000)}:R>` : 'Unknown'}\n` +
+            (dateLabel ? `⏱️ **Audit Filter:** \`${startDateStr || 'All-Time'}\` to \`${endDateStr || 'Present'}\`\n\n` : '\n') +
+            `🎖️ **Level & XP:** Level **${userRecord?.level || 1}** (${Number(userRecord?.xp || 0).toLocaleString()} XP)\n` +
+            `🪙 **Cohesion Points:** **${Number(userRecord?.total_points || 0).toLocaleString()} CP**\n` +
+            `💬 **Total Messages:** **${totalMessages.toLocaleString()}** messages\n` +
+            `🎯 **Quests Completed:** **${questCount || 0}** actions${dateLabel}\n` +
+            `🎟️ **Raffle Tickets:** **${totalTickets}** tickets${dateLabel}\n` +
+            `👛 **Wallet:** \`${userRecord?.wallet_address || userRecord?.evm_address || 'Not Linked'}\`\n` +
+            `🐦 **Twitter / X:** ${userRecord?.twitter_handle ? `@${userRecord.twitter_handle}` : '*Not Linked*'}\n\n` +
+            `📊 **Top Channels:**\n${breakdownStr}`
+          )
+          .setFooter({ text: 'Cohesion Member Intelligence • Dossier Generated' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed], files: [attachment] });
+      }
+
+      // --- MODAL: CHANNEL MESSAGE AUDIT (WITH DATE RANGE & DEPTH) ---
+      if (modalId.startsWith('modal_export_channel_')) {
+        const targetChannelId = modalId.replace('modal_export_channel_', '');
+        await interaction.deferReply({ ephemeral: true });
+
+        const channel = await interaction.guild?.channels?.fetch(targetChannelId).catch(() => null);
+        if (!channel || !channel.isTextBased()) {
+          return interaction.editReply({ content: '❌ Selected channel is not accessible or not a text channel.' });
         }
 
-        // Filter users whose created_at or updated_at falls inside the window
-        const filtered = allUsers
-          .filter(u => {
-            const cTime = u.created_at ? new Date(u.created_at).getTime() : 0;
-            const uTime = u.updated_at ? new Date(u.updated_at).getTime() : 0;
-            return (cTime >= startMs && cTime <= endMs) || (uTime >= startMs && uTime <= endMs);
-          })
-          .map(u => ({
-            ...u,
-            messages_sent: Math.max(Number(u.messages_sent || 0), getUserMessageCount(guildId, u.discord_id)),
-          }));
+        const startDateStr = interaction.fields.getTextInputValue('input_channel_start_date')?.trim() || '';
+        const endDateStr = interaction.fields.getTextInputValue('input_channel_end_date')?.trim() || '';
+        const depthStr = interaction.fields.getTextInputValue('input_channel_depth')?.trim() || '500';
+        const depth = Math.min(2000, Math.max(50, parseInt(depthStr, 10) || 500));
 
-        if (filtered.length === 0) {
+        let startMs = null;
+        let endMs = null;
+        if (startDateStr) {
+          startMs = new Date(startDateStr).getTime();
+          if (isNaN(startMs)) return interaction.editReply({ content: '❌ Invalid Start Date! Use `YYYY-MM-DD`.' });
+        }
+        if (endDateStr) {
+          endMs = new Date(`${endDateStr}T23:59:59.999Z`).getTime();
+          if (isNaN(endMs)) return interaction.editReply({ content: '❌ Invalid End Date! Use `YYYY-MM-DD`.' });
+        }
+        if (startMs && endMs && startMs > endMs) {
+          return interaction.editReply({ content: '❌ Start Date cannot be after End Date!' });
+        }
+
+        const channelStats = await auditChannelMessages(channel, {
+          maxMessages: depth,
+          startMs,
+          endMs,
+        });
+
+        if (channelStats.size === 0) {
+          const filterMsg = (startDateStr || endDateStr) ? ` within the timeframe **${startDateStr || 'All'}** to **${endDateStr || 'Now'}**` : '';
           return interaction.editReply({
-            content: `⚠️ No member records found active or created between **${startDateStr}** and **${endDateStr}**.`,
+            content: `📢 No human member messages found in <#${targetChannelId}>${filterMsg} (scanned up to ${depth} messages).`,
           });
         }
 
-        const attachment = generateUsersCsvAttachment(
-          filtered,
-          `cohesion_members_${startDateStr}_to_${endDateStr}.csv`
-        );
+        const dateRangeLabel = (startDateStr || endDateStr) ? `${startDateStr || 'All'} to ${endDateStr || 'Now'}` : 'All-Time Recent';
+        const attachment = generateChannelCsvAttachment(channel.name, channelStats, interaction.guild, dateRangeLabel);
 
-        return interaction.editReply({
-          content: `✅ **Date Range Export Complete!**\n📅 Filter: **${startDateStr}** to **${endDateStr}**\n👥 Matching Records: **${filtered.length}**`,
-          files: [attachment],
-        });
+        const topTalkers = Array.from(channelStats.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([uId, cnt], i) => `**#${i + 1}** <@${uId}> — **${cnt}** messages`)
+          .join('\n');
+
+        const embed = new EmbedBuilder()
+          .setColor(0x4361ee)
+          .setTitle(`📢 Channel Message Audit: #${channel.name}`)
+          .setDescription(
+            `Successfully audited messages in <#${targetChannelId}>!\n\n` +
+            `📅 **Timeframe Filter:** \`${dateRangeLabel}\`\n` +
+            `🔍 **Messages Scanned:** Up to **${depth}** messages\n` +
+            `📊 **Active Human Members:** **${channelStats.size}**\n\n` +
+            `🏆 **Top Talkers:**\n${topTalkers}\n\n` +
+            `*Full channel message leaderboard exported as CSV attached below.*`
+          )
+          .setFooter({ text: 'Cohesion Channel Intelligence' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed], files: [attachment] });
       }
 
       // --- MODAL: AUTOMOD UPDATE BANNED WORDS ---
@@ -6659,44 +6899,15 @@ export default {
           });
         }
 
-        await interaction.deferReply({ ephemeral: true });
         const targetChannelId = interaction.values[0];
         const channel = await interaction.guild?.channels?.fetch(targetChannelId).catch(() => null);
 
         if (!channel || !channel.isTextBased()) {
-          return interaction.editReply({ content: '❌ Selected channel is not accessible or not a text channel.' });
+          return interaction.reply({ content: '❌ Selected channel is not accessible or not a text channel.', ephemeral: true });
         }
 
-        // Audit recent messages from channel
-        const channelStats = await auditChannelMessages(channel, 100);
-
-        if (channelStats.size === 0) {
-          return interaction.editReply({
-            content: `📢 No recent messages found from human members in <#${targetChannelId}>.`,
-          });
-        }
-
-        const attachment = generateChannelCsvAttachment(channel.name, channelStats, interaction.guild);
-
-        // Top 5 talkers
-        const topTalkers = Array.from(channelStats.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([uId, cnt], i) => `**#${i + 1}** <@${uId}> — **${cnt}** messages`)
-          .join('\n');
-
-        const embed = new EmbedBuilder()
-          .setColor(0x4361ee)
-          .setTitle(`📢 Channel Message Audit: #${channel.name}`)
-          .setDescription(
-            `Successfully audited messages in <#${targetChannelId}>!\n\n` +
-            `📊 **Unique Active Members:** **${channelStats.size}**\n\n` +
-            `🏆 **Top Talkers in Channel:**\n${topTalkers}\n\n` +
-            `*Full channel leaderboard exported as CSV attached below.*`
-          )
-          .setFooter({ text: 'Cohesion Channel Intelligence' });
-
-        return interaction.editReply({ embeds: [embed], files: [attachment] });
+        const modal = buildChannelAuditModal(targetChannelId, channel.name);
+        return interaction.showModal(modal);
       }
     }
 

@@ -24,13 +24,11 @@ export default {
     // Track message activity across channel & user
     trackMessage(guildId, message.channel.id, userId);
 
-    // 1-minute anti-spam cooldown for XP rewards
-    if (isUserOnMessageCooldown(guildId, userId)) {
-      return;
-    }
+    const authorUsername = message.author.username || message.author.tag || 'Member';
+    const isCooldown = isUserOnMessageCooldown(guildId, userId);
 
-    // Award 15-25 random XP
-    const earnedXp = Math.floor(Math.random() * 11) + 15;
+    // Award 15-25 random XP (if not on cooldown)
+    const earnedXp = isCooldown ? 0 : Math.floor(Math.random() * 11) + 15;
 
     try {
       // Ensure guild exists in database
@@ -57,11 +55,28 @@ export default {
         await supabase.from('users').insert({
           guild_id: guildId,
           discord_id: userId,
+          username: authorUsername,
           xp: earnedXp,
           level: newLevel,
           total_points: 0,
           messages_sent: 1,
         });
+        return;
+      }
+
+      const currentMessages = Number(userRecord.messages_sent || 0) + 1;
+
+      // If user is on XP cooldown, still count the message & keep username fresh
+      if (isCooldown) {
+        await supabase
+          .from('users')
+          .update({
+            username: authorUsername,
+            messages_sent: currentMessages,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('guild_id', guildId)
+          .eq('discord_id', userId);
         return;
       }
 
@@ -72,8 +87,6 @@ export default {
       const newXp = currentXp + earnedXp;
       const calculatedLevel = getLevelFromXp(newXp);
 
-      const currentMessages = Number(userRecord.messages_sent || 0) + 1;
-
       if (calculatedLevel > currentLevel) {
         const levelsGained = calculatedLevel - currentLevel;
         const bonusPoints = levelsGained * POINTS_PER_LEVEL;
@@ -82,6 +95,7 @@ export default {
         await supabase
           .from('users')
           .update({
+            username: authorUsername,
             xp: newXp,
             level: calculatedLevel,
             total_points: updatedPoints,

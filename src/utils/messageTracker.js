@@ -78,22 +78,56 @@ export function getChannelUserStats(guildId, channelId) {
 
 /**
  * Fetches recent message history from a Discord channel directly,
- * aggregating counts per user.
+ * aggregating counts per user with pagination and date range support.
  */
-export async function auditChannelMessages(channel, limit = 100) {
+export async function auditChannelMessages(channel, options = 100) {
   const userCounts = new Map();
   if (!channel || !channel.isTextBased()) return userCounts;
 
-  try {
-    const messages = await channel.messages.fetch({ limit: Math.min(100, limit) });
-    for (const msg of messages.values()) {
-      if (msg.author.bot) continue;
-      const uId = msg.author.id;
-      userCounts.set(uId, (userCounts.get(uId) || 0) + 1);
+  const maxMessages = typeof options === 'number' ? options : (options.maxMessages || 500);
+  const startMs = typeof options === 'object' ? options.startMs : null;
+  const endMs = typeof options === 'object' ? options.endMs : null;
 
-      // Sync into memory tracker
-      const chKey = `${channel.guildId}:${channel.id}:${uId}`;
-      channelUserStats.set(chKey, Math.max(channelUserStats.get(chKey) || 0, userCounts.get(uId)));
+  try {
+    let lastId = null;
+    let fetchedTotal = 0;
+    const batchSize = 100;
+
+    while (fetchedTotal < maxMessages) {
+      const fetchOpts = { limit: Math.min(batchSize, maxMessages - fetchedTotal) };
+      if (lastId) fetchOpts.before = lastId;
+
+      const messages = await channel.messages.fetch(fetchOpts).catch(() => null);
+      if (!messages || messages.size === 0) break;
+
+      let reachedBeforeStart = false;
+
+      for (const msg of messages.values()) {
+        fetchedTotal++;
+        lastId = msg.id;
+        const msgTime = msg.createdTimestamp;
+
+        if (endMs && msgTime > endMs) {
+          continue;
+        }
+
+        if (startMs && msgTime < startMs) {
+          reachedBeforeStart = true;
+          break;
+        }
+
+        if (msg.author.bot) continue;
+        const uId = msg.author.id;
+        userCounts.set(uId, (userCounts.get(uId) || 0) + 1);
+
+        // Sync into memory tracker
+        const chKey = `${channel.guildId}:${channel.id}:${uId}`;
+        channelUserStats.set(chKey, Math.max(channelUserStats.get(chKey) || 0, userCounts.get(uId)));
+      }
+
+      if (reachedBeforeStart || messages.size < fetchOpts.limit) {
+        break;
+      }
     }
   } catch (err) {
     console.warn('[AUDIT CHANNEL MSG WARN]:', err.message);
