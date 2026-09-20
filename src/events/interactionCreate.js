@@ -61,6 +61,17 @@ import {
   closeTicket,
   generateTicketTranscript,
 } from '../utils/ticketManager.js';
+import {
+  buildDiscordTgSettingsPayload,
+  buildDiscordTgModeSelector,
+  buildDiscordTgManagePayload,
+  buildDiscordPairingCard,
+  buildTelegramBroadcastModal,
+  setBridgeSyncMode,
+  unlinkBridge,
+  getBridgeSettings,
+} from '../utils/tgBridgeManager.js';
+import { sendTelegramBroadcast } from '../telegram/telegramBot.js';
 import { detectChain } from '../utils/walletValidator.js';
 import { parseCmcPostUrl, verifyCmcEngagement } from '../utils/cmcVerifier.js';
 import {
@@ -1984,6 +1995,104 @@ export default {
           interaction.channel?.delete().catch(() => null);
         }, 3000);
         return;
+      }
+
+      // --- TELEGRAM SETTINGS DASHBOARD ---
+      if (customId === 'admin_telegram_settings' || customId === 'btn_tg_back_settings') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied**: Administrator or Manage Server permissions required.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildDiscordTgSettingsPayload(guildId);
+        return interaction.reply(payload);
+      }
+
+      // --- TELEGRAM: LINK GROUP (GENERATE HANDSHAKE CODE) ---
+      if (customId === 'tg_link_group') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ Administrator permissions required to pair Telegram groups.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildDiscordPairingCard(guildId, interaction.guild?.name || 'Discord Server', discordId);
+        return interaction.reply(payload);
+      }
+
+      // --- TELEGRAM: MODE SETTINGS (ISOLATED VS MERGED) ---
+      if (customId === 'tg_mode_settings') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ Administrator permissions required to configure Sync Mode.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildDiscordTgModeSelector(guildId);
+        return interaction.reply(payload);
+      }
+
+      // --- TELEGRAM: SET ISOLATED MODE ---
+      if (customId === 'tg_set_mode_isolated') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Administrator permissions required.', ephemeral: true });
+        }
+        await setBridgeSyncMode(guildId, 'isolated');
+        return interaction.reply({
+          content: '🔒 **Operating Mode set to: Isolated Mode**\n\nTelegram and Discord will operate completely independently with separate points, streaks, and leaderboards.',
+          ephemeral: true,
+        });
+      }
+
+      // --- TELEGRAM: SET MERGED MODE ---
+      if (customId === 'tg_set_mode_merged') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Administrator permissions required.', ephemeral: true });
+        }
+        await setBridgeSyncMode(guildId, 'merged');
+        return interaction.reply({
+          content: '🔗 **Operating Mode set to: Merged Mode**\n\nCross-platform synchronization is active! Linked members will share points, XP, and streaks between Discord and Telegram.',
+          ephemeral: true,
+        });
+      }
+
+      // --- TELEGRAM: MANAGE TELEGRAM GROUP ---
+      if (customId === 'tg_manage_group') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ Administrator permissions required to manage Telegram settings.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildDiscordTgManagePayload(guildId);
+        return interaction.reply(payload);
+      }
+
+      // --- TELEGRAM: BROADCAST MODAL ---
+      if (customId === 'tg_broadcast_modal') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Administrator permissions required.', ephemeral: true });
+        }
+        return interaction.showModal(buildTelegramBroadcastModal());
+      }
+
+      // --- TELEGRAM: UNLINK / DISCONNECT ---
+      if (customId === 'tg_unlink_group') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Administrator permissions required.', ephemeral: true });
+        }
+        await unlinkBridge(guildId);
+        return interaction.reply({
+          content: '❌ **Telegram group unlinked.** This Discord server is now disconnected from Telegram.',
+          ephemeral: true,
+        });
+      }
+
+      // --- TELEGRAM: LINK INFO / REFRESH ---
+      if (customId === 'tg_link_info') {
+        const payload = buildDiscordTgSettingsPayload(guildId);
+        return interaction.reply(payload);
       }
 
       // --- ADMIN: 5-TIER MILESTONE ROLES ---
@@ -4487,6 +4596,28 @@ export default {
 
         return interaction.editReply({
           content: `✅ **Support Ticket Created!** Please head over to <#${res.channel.id}> to speak with server staff.`,
+        });
+      }
+
+      // --- MODAL: BROADCAST TO LINKED TELEGRAM GROUP ---
+      if (modalId === 'modal_tg_broadcast') {
+        await interaction.deferReply({ ephemeral: true });
+
+        const headline = interaction.fields.getTextInputValue('input_tg_broadcast_title')?.trim() || 'Community Announcement';
+        const message = interaction.fields.getTextInputValue('input_tg_broadcast_msg')?.trim() || '';
+
+        const bridge = getBridgeSettings(guildId);
+        if (!bridge || !bridge.chatId) {
+          return interaction.editReply({ content: '❌ No Telegram group is currently linked to this server.' });
+        }
+
+        const res = await sendTelegramBroadcast(bridge.chatId, headline, message);
+        if (!res.success) {
+          return interaction.editReply({ content: `❌ Failed to broadcast to Telegram: ${res.message}` });
+        }
+
+        return interaction.editReply({
+          content: `✅ **Announcement Broadcasted!** Message successfully posted into **${bridge.chatTitle}** on Telegram!`,
         });
       }
 

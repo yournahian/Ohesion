@@ -5,12 +5,35 @@ import { getLevelFromXp, POINTS_PER_LEVEL } from '../utils/levelCalculator.js';
 import { trackMessage } from '../utils/messageTracker.js';
 import { inspectMessage } from '../utils/autoModEngine.js';
 import { getGuildSettings } from '../utils/guildSettings.js';
+import { verifyAndPair } from '../utils/tgBridgeManager.js';
 
 export default {
   name: Events.MessageCreate,
   async execute(message) {
     // Ignore bots, webhooks, and direct messages
     if (!message.guild || message.author.bot) return;
+
+    // Admin Handshake Command: !pair <code> or /pair <code>
+    if (message.content.startsWith('!pair') || message.content.startsWith('/pair')) {
+      if (
+        message.member?.permissions?.has('Administrator') ||
+        message.member?.permissions?.has('ManageGuild') ||
+        message.guild.ownerId === message.author.id
+      ) {
+        const parts = message.content.trim().split(/\s+/);
+        const code = parts[1];
+        if (code) {
+          const res = await verifyAndPair(code, message.guild.id, message.guild.name, message.author.id);
+          if (res.success) {
+            return message.reply(
+              `🎉 **Connection Successful!** This server is now linked to Telegram group **"${res.bridge.chatTitle}"**!\nOperating Mode: **${res.bridge.syncMode.toUpperCase()}**.`
+            );
+          } else {
+            return message.reply(res.message);
+          }
+        }
+      }
+    }
 
     // 🛡️ Cohesion Shield: AutoMod Inspection (Links, Invites, Banned Words, Spam)
     const autoModResult = await inspectMessage(message);

@@ -6,6 +6,7 @@ import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { config } from './config.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
+import { initTelegramBot } from './telegram/telegramBot.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +104,13 @@ async function main() {
   }
 
   await client.login(config.discordToken);
+
+  // Initialize and start Telegram Bot concurrently
+  try {
+    await initTelegramBot(client);
+  } catch (tgErr) {
+    console.error('[TELEGRAM INIT ERROR]:', tgErr.message);
+  }
 }
 
 // Global process safety handlers to prevent crashes from network blips

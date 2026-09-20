@@ -134,10 +134,10 @@ export async function getAdminPanelPayload(guild) {
       .setEmoji('🔥')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
-      .setCustomId('admin_top_engagers')
-      .setLabel('Top Engagers')
-      .setEmoji('📊')
-      .setStyle(ButtonStyle.Secondary)
+      .setCustomId('admin_season_wipe')
+      .setLabel('Season Reset')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Danger)
   );
 
   // Row 4: Community Activities, Games & Quizzes
@@ -169,7 +169,7 @@ export async function getAdminPanelPayload(guild) {
       .setStyle(ButtonStyle.Primary)
   );
 
-  // Row 5: Server Architecture, Modes, Data Export, AutoMod & Level-Up Channel
+  // Row 5: Server Architecture, Telegram Integration, Data Export & AutoMod
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('admin_server_mode')
@@ -177,10 +177,15 @@ export async function getAdminPanelPayload(guild) {
       .setEmoji('⚙️')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
+      .setCustomId('admin_telegram_settings')
+      .setLabel('Telegram Settings')
+      .setEmoji('✈️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
       .setCustomId('admin_level_channel')
       .setLabel('Level-Up Channel')
       .setEmoji('📢')
-      .setStyle(ButtonStyle.Primary),
+      .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('admin_export_users')
       .setLabel('Export Userlist / CSV')
@@ -190,12 +195,7 @@ export async function getAdminPanelPayload(guild) {
       .setCustomId('admin_automod')
       .setLabel('AutoMod & Shield')
       .setEmoji('🛡️')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('admin_season_wipe')
-      .setLabel('Season Reset')
-      .setEmoji('🔄')
-      .setStyle(ButtonStyle.Danger)
+      .setStyle(ButtonStyle.Success)
   );
 
   return {
