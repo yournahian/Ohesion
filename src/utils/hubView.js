@@ -3,6 +3,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { getRequiredXpForLevel } from './levelCalculator.js';
@@ -15,7 +16,7 @@ import {
 /**
  * Builds the Cohesion Hub interactive embed and action rows for a user.
  */
-export async function buildHubPayload(guild, user) {
+export async function buildHubPayload(guild, user, member = null) {
   if (!guild || !guild.id) {
     return {
       content:
@@ -24,6 +25,17 @@ export async function buildHubPayload(guild, user) {
   }
   const guildId = guild.id;
   const userId = user.id;
+
+  const resolvedMember =
+    member ||
+    guild.members?.cache?.get(userId) ||
+    (await guild.members?.fetch(userId).catch(() => null));
+
+  const isAdmin = Boolean(
+    resolvedMember?.permissions?.has(PermissionFlagsBits.Administrator) ||
+    resolvedMember?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
+    guild.ownerId === userId
+  );
 
   // 1. Fetch user stats from Supabase
   const { data: userRecord } = await supabase
@@ -261,22 +273,16 @@ export async function buildHubPayload(guild, user) {
     );
   }
 
-  // 100% UI-driven Feature Control & Admin Entries
-  row3Components.push(
-    new ButtonBuilder()
-      .setCustomId('hub_toggle_features')
-      .setLabel('Feature Controls')
-      .setEmoji('⚙️')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  row3Components.push(
-    new ButtonBuilder()
-      .setCustomId('hub_open_admin')
-      .setLabel('Admin Control')
-      .setEmoji('🛠️')
-      .setStyle(ButtonStyle.Secondary)
-  );
+  // Feature Controls: Only visible to Administrators
+  if (isAdmin) {
+    row3Components.push(
+      new ButtonBuilder()
+        .setCustomId('hub_toggle_features')
+        .setLabel('Feature Controls')
+        .setEmoji('⚙️')
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
 
   const components = [actionRow1, actionRow2];
   if (row3Components.length > 0) {

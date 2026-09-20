@@ -2754,7 +2754,7 @@ export default {
         const guild =
           interaction.guild ||
           (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
-        const payload = await buildHubPayload(guild, interaction.user);
+        const payload = await buildHubPayload(guild, interaction.user, interaction.member);
         return interaction.editReply(payload);
       }
 

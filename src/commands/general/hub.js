@@ -21,7 +21,7 @@ export default {
       });
     }
 
-    const payload = await buildHubPayload(guild, interaction.user);
+    const payload = await buildHubPayload(guild, interaction.user, interaction.member);
     return interaction.editReply(payload);
   },
 };
