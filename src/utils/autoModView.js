@@ -5,11 +5,13 @@ import {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { getAutoModSettings } from './autoModEngine.js';
+import { getAutoModSettings, getChannelLinkRule } from './autoModEngine.js';
 
 /**
  * Builds the visual Discord Embed and control buttons for AutoMod & Shield.
@@ -28,20 +30,25 @@ export function buildAutoModDashboard(guildId, guildName) {
       ? settings.banned_words.map(w => `\`${w}\``).join(', ')
       : '*No custom banned words set yet.*';
 
+  const rulesCount = Object.keys(settings.channel_link_rules || {}).length;
+  const defaultPolicyLabel = settings.default_link_policy === 'allow_all' ? '🟢 Allow All' : '🔴 Block All';
+
   const embed = new EmbedBuilder()
     .setColor(0x06d6a0)
     .setTitle(`🛡️ Cohesion Shield • AutoMod & Anti-Spam Manager`)
     .setDescription(
       `Control real-time community protection against spam floods, phishing links, and forbidden words.\n\n` +
       `**Active Protection Toggles:**\n` +
-      `• ${settings.anti_link ? '🟢 **ENABLED**' : '🔴 **DISABLED**'} — **🔗 Anti-Link Protection** (Blocks external web links)\n` +
+      `• ${settings.anti_link ? '🟢 **ENABLED**' : '🔴 **DISABLED**'} — **🔗 Anti-Link Protection** (Server-wide link control)\n` +
       `• ${settings.anti_invite ? '🟢 **ENABLED**' : '🔴 **DISABLED**'} — **🚪 Anti-Invite Blocker** (Blocks other Discord server invites)\n` +
       `• ${settings.anti_spam ? '🟢 **ENABLED**' : '🔴 **DISABLED**'} — **⚡ Rapid Message Flood** (Blocks message bursting & duplicate spam)\n\n` +
+      `**Custom Link Channels:**\n` +
+      `👉 **${rulesCount}** channel rule(s) configured • Unconfigured Channels: **${defaultPolicyLabel}**\n\n` +
       `**Punishment Policy:**\n` +
       `👉 **${modeLabels[settings.punishment_mode] || settings.punishment_mode}**\n\n` +
       `**Active Banned Keywords (${settings.banned_words?.length || 0}):**\n` +
       `${wordsPreview}\n\n` +
-      `*Use the buttons below to toggle filters, update banned words, or change punishment policies.*`
+      `*Use the buttons below to toggle filters, customize channel link rules, or update policies.*`
     )
     .setFooter({ text: 'Cohesion Shield Security • Auto-logged to #cohesion-logs' })
     .setTimestamp();
@@ -65,6 +72,11 @@ export function buildAutoModDashboard(guildId, guildName) {
   );
 
   const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('automod_btn_channel_rules')
+      .setLabel('Custom Channel Links')
+      .setEmoji('🔗')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('automod_btn_punishment')
       .setLabel('Punishment Mode')
@@ -141,5 +153,145 @@ export function buildBannedWordsModal(currentWords = []) {
     .setRequired(false);
 
   modal.addComponents(new ActionRowBuilder().addComponents(wordsInput));
+  return modal;
+}
+
+/**
+ * Builds the visual Channel Link Rules manager dashboard.
+ */
+export function buildChannelRulesDashboard(guild, guildId, selectedChannelId = null) {
+  const settings = getAutoModSettings(guildId);
+  const defaultPolicy = settings.default_link_policy || 'block_all';
+  const channelRules = settings.channel_link_rules || {};
+
+  // Build configured rules summary list
+  const ruleEntries = Object.entries(channelRules);
+  let summaryText = '';
+
+  if (ruleEntries.length === 0) {
+    summaryText = '*No channels have custom rules yet. All channels currently follow the Server Default Policy.*';
+  } else {
+    summaryText = ruleEntries
+      .map(([cId, r]) => {
+        if (r.mode === 'allow_all') {
+          return `• <#${cId}>: 🟢 **Allow All Links**`;
+        } else if (r.mode === 'block_all') {
+          return `• <#${cId}>: 🔴 **Block All Links**`;
+        } else {
+          const doms = r.allowed_domains && r.allowed_domains.length > 0
+            ? r.allowed_domains.map(d => `\`${d}\``).join(', ')
+            : '*None*';
+          return `• <#${cId}>: 🛡️ **Whitelist Only** (${doms})`;
+        }
+      })
+      .join('\n');
+  }
+
+  // Selected channel details
+  let selectedDetails = '';
+  let selectedChannelObj = null;
+  if (selectedChannelId) {
+    selectedChannelObj = guild?.channels?.cache?.get(selectedChannelId);
+    const existingRule = channelRules[selectedChannelId];
+    if (existingRule) {
+      if (existingRule.mode === 'allow_all') {
+        selectedDetails = `\n\n📌 **Selected: <#${selectedChannelId}>**\nStatus: 🟢 **All Links Permitted** (No restrictions)`;
+      } else if (existingRule.mode === 'block_all') {
+        selectedDetails = `\n\n📌 **Selected: <#${selectedChannelId}>**\nStatus: 🔴 **All Links Blocked**`;
+      } else {
+        const domList = existingRule.allowed_domains?.map(d => `\`${d}\``).join(', ') || '*No domains added yet*';
+        selectedDetails = `\n\n📌 **Selected: <#${selectedChannelId}>**\nStatus: 🛡️ **Whitelist Links Only**\nAllowed Links: ${domList}`;
+      }
+    } else {
+      selectedDetails = `\n\n📌 **Selected: <#${selectedChannelId}>**\nStatus: ⚪ **Following Server Default** (${defaultPolicy === 'allow_all' ? '🟢 Allow All' : '🔴 Block All'})`;
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x06d6a0)
+    .setTitle('🔗 Cohesion Shield • Channel Link Rules & Whitelist')
+    .setDescription(
+      `Configure exact link permissions for every channel in your server.\n\n` +
+      `**Server Default Policy (Unconfigured Channels):**\n` +
+      `👉 ${defaultPolicy === 'allow_all' ? '🟢 **Allow All Links** (Links allowed everywhere unless blocked)' : '🔴 **Block All Links** (Links forbidden everywhere unless whitelisted)'}\n\n` +
+      `**Active Channel Rules (${ruleEntries.length}):**\n` +
+      `${summaryText}` +
+      `${selectedDetails}\n\n` +
+      `*Select a channel from the dropdown below to configure or change its rule:*`
+    )
+    .setFooter({ text: 'Cohesion Shield Security • Real-time enforcement' })
+    .setTimestamp();
+
+  // 1. Channel Select Menu Row
+  const channelSelect = new ChannelSelectMenuBuilder()
+    .setCustomId('select_automod_rule_channel')
+    .setPlaceholder('Select a channel to configure its link rules...')
+    .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+
+  const components = [new ActionRowBuilder().addComponents(channelSelect)];
+
+  // 2. Selected Channel Actions Row (if a channel is currently selected)
+  if (selectedChannelId) {
+    const channelButtons = [
+      new ButtonBuilder()
+        .setCustomId(`rule_set_links_${selectedChannelId}`)
+        .setLabel('Set Allowed Links')
+        .setEmoji('🛡️')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`rule_mode_all_${selectedChannelId}`)
+        .setLabel('Allow All')
+        .setEmoji('🟢')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`rule_mode_block_${selectedChannelId}`)
+        .setLabel('Block All')
+        .setEmoji('🔴')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`rule_reset_${selectedChannelId}`)
+        .setLabel('Reset to Default')
+        .setEmoji('🗑️')
+        .setStyle(ButtonStyle.Secondary),
+    ];
+    components.push(new ActionRowBuilder().addComponents(channelButtons));
+  }
+
+  // 3. Navigation and Global Toggle Row
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('rule_toggle_default_policy')
+      .setLabel(`Default Policy: ${defaultPolicy === 'allow_all' ? 'ALLOW ALL' : 'BLOCK ALL'}`)
+      .setEmoji('🌐')
+      .setStyle(defaultPolicy === 'allow_all' ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('automod_back_to_main')
+      .setLabel('Back to Shield')
+      .setEmoji('⬅️')
+      .setStyle(ButtonStyle.Secondary)
+  );
+  components.push(navRow);
+
+  return { embeds: [embed], components, ephemeral: true };
+}
+
+/**
+ * Builds the modal for inputting multiple allowed links/domains for a specific channel.
+ */
+export function buildChannelLinksModal(channelId, channelName, currentDomains = []) {
+  const modal = new ModalBuilder()
+    .setCustomId(`modal_channel_links_${channelId}`)
+    .setTitle(`Allowed Links: #${channelName.slice(0, 20)}`);
+
+  const linksInput = new TextInputBuilder()
+    .setCustomId('input_channel_allowed_domains')
+    .setLabel('Allowed Links / Domains (Multiple)')
+    .setValue(currentDomains.join(', '))
+    .setPlaceholder('e.g. x.com, twitter.com\nyoutube.com\nrialo.io, github.com')
+    .setStyle(TextInputStyle.Paragraph)
+    .setMaxLength(1000)
+    .setRequired(true);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(linksInput));
   return modal;
 }

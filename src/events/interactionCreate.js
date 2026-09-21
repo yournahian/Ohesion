@@ -37,11 +37,17 @@ import {
   buildAutoModDashboard,
   buildPunishmentSelector,
   buildBannedWordsModal,
+  buildChannelRulesDashboard,
+  buildChannelLinksModal,
 } from '../utils/autoModView.js';
 import {
   getAutoModSettings,
   updateAutoModSettings,
   resetGuildStrikes,
+  setChannelLinkRule,
+  removeChannelLinkRule,
+  setDefaultLinkPolicy,
+  getChannelLinkRule,
 } from '../utils/autoModEngine.js';
 import {
   getGuildSettings,
@@ -2642,6 +2648,133 @@ export default {
 
         const payload = buildExportDashboard(guildId, interaction.guild?.name);
         return interaction.reply(payload);
+      }
+
+      // --- ADMIN: AUTOMOD & SHIELD DASHBOARD ---
+      if (customId === 'admin_automod' || customId === 'automod_back_to_main') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure AutoMod.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
+        if (customId === 'automod_back_to_main') {
+          await interaction.deferUpdate();
+          return interaction.editReply(payload);
+        } else {
+          return interaction.reply(payload);
+        }
+      }
+
+      // --- AUTOMOD TOGGLES ---
+      if (customId === 'automod_toggle_link') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_link: !settings.anti_link });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildAutoModDashboard(guildId, interaction.guild?.name));
+      }
+
+      if (customId === 'automod_toggle_invite') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_invite: !settings.anti_invite });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildAutoModDashboard(guildId, interaction.guild?.name));
+      }
+
+      if (customId === 'automod_toggle_spam') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        updateAutoModSettings(guildId, { anti_spam: !settings.anti_spam });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildAutoModDashboard(guildId, interaction.guild?.name));
+      }
+
+      // --- AUTOMOD PUNISHMENT SELECTOR ---
+      if (customId === 'automod_btn_punishment') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        await interaction.deferUpdate();
+        return interaction.editReply(buildPunishmentSelector(settings.punishment_mode));
+      }
+
+      // --- AUTOMOD BANNED WORDS MODAL ---
+      if (customId === 'automod_btn_words') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        return interaction.showModal(buildBannedWordsModal(settings.banned_words));
+      }
+
+      // --- AUTOMOD RESET STRIKES ---
+      if (customId === 'automod_btn_reset_strikes') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const count = resetGuildStrikes(guildId);
+        await interaction.deferUpdate();
+        return interaction.editReply({
+          content: `🔄 **Strikes Cleared!** Reset strikes for ${count} member(s).`,
+          embeds: [],
+          components: [],
+        });
+      }
+
+      // --- AUTOMOD: CHANNEL LINK RULES DASHBOARD ---
+      if (customId === 'automod_btn_channel_rules') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId));
+      }
+
+      // --- AUTOMOD: TOGGLE SERVER DEFAULT POLICY ---
+      if (customId === 'rule_toggle_default_policy') {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const settings = getAutoModSettings(guildId);
+        const newPolicy = settings.default_link_policy === 'allow_all' ? 'block_all' : 'allow_all';
+        setDefaultLinkPolicy(guildId, newPolicy);
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId));
+      }
+
+      // --- AUTOMOD: SET CHANNEL MODE TO ALLOW ALL ---
+      if (customId.startsWith('rule_mode_all_')) {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const targetChannelId = customId.replace('rule_mode_all_', '');
+        setChannelLinkRule(guildId, targetChannelId, { mode: 'allow_all' });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, targetChannelId));
+      }
+
+      // --- AUTOMOD: SET CHANNEL MODE TO BLOCK ALL ---
+      if (customId.startsWith('rule_mode_block_')) {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const targetChannelId = customId.replace('rule_mode_block_', '');
+        setChannelLinkRule(guildId, targetChannelId, { mode: 'block_all' });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, targetChannelId));
+      }
+
+      // --- AUTOMOD: RESET CHANNEL RULE TO SERVER DEFAULT ---
+      if (customId.startsWith('rule_reset_')) {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const targetChannelId = customId.replace('rule_reset_', '');
+        removeChannelLinkRule(guildId, targetChannelId);
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, targetChannelId));
+      }
+
+      // --- AUTOMOD: PROMPT MODAL TO INPUT ALLOWED LINKS ---
+      if (customId.startsWith('rule_set_links_')) {
+        if (!isAuthorizedAdmin(interaction)) return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        const targetChannelId = customId.replace('rule_set_links_', '');
+        const targetChannelObj = interaction.guild?.channels?.cache?.get(targetChannelId);
+        const existingRule = getChannelLinkRule(guildId, targetChannelId);
+        const modal = buildChannelLinksModal(
+          targetChannelId,
+          targetChannelObj?.name || 'channel',
+          existingRule?.allowed_domains || []
+        );
+        return interaction.showModal(modal);
       }
 
       // --- ADMIN: PROMPT FULL SERVER EXPORT MODAL ---
@@ -6405,6 +6538,27 @@ export default {
           ephemeral: true,
         });
       }
+
+      // --- MODAL: SET CHANNEL ALLOWED LINKS ---
+      if (modalId.startsWith('modal_channel_links_')) {
+        const targetChannelId = modalId.replace('modal_channel_links_', '');
+        const rawDomains = interaction.fields.getTextInputValue('input_channel_allowed_domains') || '';
+
+        // Parse domains separated by commas, newlines, semicolons, or spaces
+        const domains = rawDomains
+          .split(/[\n,;\s]+/)
+          .map(d => d.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/+$/, ''))
+          .filter(Boolean);
+
+        const uniqueDomains = Array.from(new Set(domains));
+        setChannelLinkRule(guildId, targetChannelId, {
+          mode: 'whitelist',
+          allowed_domains: uniqueDomains,
+        });
+
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, targetChannelId));
+      }
     }
 
     // ==========================================
@@ -7342,6 +7496,35 @@ export default {
         );
 
         return interaction.editReply({ embeds: [embed], components: [dlBtn] });
+      }
+
+      // --- SELECT: AUTOMOD PUNISHMENT POLICY ---
+      if (selectId === 'select_automod_punishment') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        }
+        const chosenMode = interaction.values[0];
+        updateAutoModSettings(guildId, { punishment_mode: chosenMode });
+        await interaction.deferUpdate();
+        return interaction.editReply(buildAutoModDashboard(guildId, interaction.guild?.name));
+      }
+    }
+
+    // ==========================================
+    // 5. HANDLE CHANNEL SELECT MENUS
+    // ==========================================
+    if (interaction.isChannelSelectMenu()) {
+      const selectId = interaction.customId;
+      const guildId = interaction.guildId;
+
+      // --- CHANNEL SELECT: CONFIGURE CHANNEL LINK RULES ---
+      if (selectId === 'select_automod_rule_channel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        }
+        const selectedChannelId = interaction.values[0];
+        await interaction.deferUpdate();
+        return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, selectedChannelId));
       }
     }
   },

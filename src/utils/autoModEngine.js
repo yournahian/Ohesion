@@ -1,6 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import { PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 import { logActivity } from './activityLogger.js';
+
+const AUTOMOD_FILE = path.resolve('data/automod_settings.json');
 
 // Cache of guild AutoMod settings
 const autoModSettingsCache = new Map();
@@ -20,9 +24,41 @@ export const DEFAULT_AUTOMOD_CONFIG = {
   punishment_mode: 'warn_timeout_ban', // 'warn_only' | 'warn_timeout' | 'warn_timeout_ban'
   timeout_duration_minutes: 10,
   banned_words: ['scam', 'free-nitro', 'airdrop-claim', 't.me/', 'whatsapp.com', 'discord-nitro'],
+  default_link_policy: 'block_all', // 'block_all' | 'allow_all'
+  channel_link_rules: {}, // { [channelId]: { mode: 'whitelist' | 'allow_all' | 'block_all', allowed_domains: string[] } }
   max_strikes_before_timeout: 2,
   max_strikes_before_ban: 3,
 };
+
+// Load persistent AutoMod settings from disk
+try {
+  if (fs.existsSync(AUTOMOD_FILE)) {
+    const raw = fs.readFileSync(AUTOMOD_FILE, 'utf-8');
+    const data = JSON.parse(raw);
+    for (const [gId, s] of Object.entries(data)) {
+      autoModSettingsCache.set(gId, { ...DEFAULT_AUTOMOD_CONFIG, ...s });
+    }
+    console.log(`[AUTOMOD ENGINE] Loaded persistent AutoMod settings for ${autoModSettingsCache.size} guilds.`);
+  }
+} catch (err) {
+  console.warn('[AUTOMOD ENGINE] Failed to load saved settings file:', err.message);
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      const dir = path.dirname(AUTOMOD_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const obj = Object.fromEntries(autoModSettingsCache);
+      fs.writeFileSync(AUTOMOD_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[AUTOMOD ENGINE] Failed to persist settings:', err.message);
+    }
+  }, 3000);
+}
 
 /**
  * Gets AutoMod settings for a guild (with fallback to defaults).
@@ -30,9 +66,17 @@ export const DEFAULT_AUTOMOD_CONFIG = {
 export function getAutoModSettings(guildId) {
   if (!guildId) return { ...DEFAULT_AUTOMOD_CONFIG };
   const existing = autoModSettingsCache.get(guildId);
-  if (existing) return existing;
+  if (existing) {
+    if (!existing.channel_link_rules) existing.channel_link_rules = {};
+    if (!existing.default_link_policy) existing.default_link_policy = 'block_all';
+    return existing;
+  }
 
-  const initial = { ...DEFAULT_AUTOMOD_CONFIG, banned_words: [...DEFAULT_AUTOMOD_CONFIG.banned_words] };
+  const initial = {
+    ...DEFAULT_AUTOMOD_CONFIG,
+    banned_words: [...DEFAULT_AUTOMOD_CONFIG.banned_words],
+    channel_link_rules: {},
+  };
   autoModSettingsCache.set(guildId, initial);
   return initial;
 }
@@ -44,7 +88,107 @@ export function updateAutoModSettings(guildId, updates) {
   const current = getAutoModSettings(guildId);
   const updated = { ...current, ...updates };
   autoModSettingsCache.set(guildId, updated);
+  scheduleSave();
   return updated;
+}
+
+/**
+ * Sets a custom link rule for a specific channel.
+ */
+export function setChannelLinkRule(guildId, channelId, { mode = 'whitelist', allowed_domains = [] }) {
+  const settings = getAutoModSettings(guildId);
+  if (!settings.channel_link_rules) settings.channel_link_rules = {};
+
+  const cleanDomains = Array.isArray(allowed_domains)
+    ? allowed_domains.map(d => d.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/+$/, '')).filter(Boolean)
+    : [];
+
+  settings.channel_link_rules[channelId] = {
+    mode, // 'whitelist' | 'allow_all' | 'block_all'
+    allowed_domains: cleanDomains,
+  };
+
+  autoModSettingsCache.set(guildId, settings);
+  scheduleSave();
+  return settings.channel_link_rules[channelId];
+}
+
+/**
+ * Removes a custom link rule for a specific channel (inherits default policy).
+ */
+export function removeChannelLinkRule(guildId, channelId) {
+  const settings = getAutoModSettings(guildId);
+  if (settings.channel_link_rules && settings.channel_link_rules[channelId]) {
+    delete settings.channel_link_rules[channelId];
+    autoModSettingsCache.set(guildId, settings);
+    scheduleSave();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Gets a custom link rule for a channel.
+ */
+export function getChannelLinkRule(guildId, channelId) {
+  const settings = getAutoModSettings(guildId);
+  return settings.channel_link_rules?.[channelId] || null;
+}
+
+/**
+ * Updates the server-wide default link policy for unconfigured channels.
+ */
+export function setDefaultLinkPolicy(guildId, policy) {
+  const settings = getAutoModSettings(guildId);
+  settings.default_link_policy = policy === 'allow_all' ? 'allow_all' : 'block_all';
+  autoModSettingsCache.set(guildId, settings);
+  scheduleSave();
+  return settings.default_link_policy;
+}
+
+/**
+ * Helper to check if a URL matches an allowed domain or custom URL prefix.
+ */
+function isUrlAllowed(rawUrl, allowedDomains) {
+  if (!allowedDomains || allowedDomains.length === 0) return false;
+
+  let hostname = '';
+  try {
+    const parsed = new URL(rawUrl);
+    hostname = parsed.hostname.toLowerCase();
+  } catch (_) {
+    const match = rawUrl.match(/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i);
+    if (match && match[1]) hostname = match[1].toLowerCase();
+  }
+
+  const cleanHost = hostname.replace(/^www\./, '');
+  const lowerUrl = rawUrl.toLowerCase();
+
+  for (const domain of allowedDomains) {
+    const cleanDomain = domain.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/+$/, '');
+    if (!cleanDomain) continue;
+
+    // Exact or subdomain match on hostname
+    if (cleanHost === cleanDomain || cleanHost.endsWith(`.${cleanDomain}`)) {
+      return true;
+    }
+    // Handle youtu.be / youtube.com aliasing
+    if (cleanDomain === 'youtube.com' && (cleanHost === 'youtu.be' || cleanHost.endsWith('.youtu.be'))) {
+      return true;
+    }
+    if (cleanDomain === 'twitter.com' && (cleanHost === 'x.com' || cleanHost.endsWith('.x.com'))) {
+      return true;
+    }
+    if (cleanDomain === 'x.com' && (cleanHost === 'twitter.com' || cleanHost.endsWith('.twitter.com'))) {
+      return true;
+    }
+    // Prefix / substring match for specific path patterns (e.g. "rialo.io/app")
+    if (lowerUrl.includes(cleanDomain)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -58,6 +202,7 @@ export function addBannedWords(guildId, words) {
 
   settings.banned_words.push(...cleanWords);
   autoModSettingsCache.set(guildId, settings);
+  scheduleSave();
   return settings.banned_words;
 }
 
@@ -69,6 +214,7 @@ export function removeBannedWord(guildId, word) {
   const clean = word.trim().toLowerCase();
   settings.banned_words = settings.banned_words.filter(w => w !== clean);
   autoModSettingsCache.set(guildId, settings);
+  scheduleSave();
   return settings.banned_words;
 }
 
@@ -168,15 +314,52 @@ export async function inspectMessage(message) {
     }
   }
 
-  // 3. Check External Links
+  // 3. Check External Links (with Per-Channel Custom Rules & Whitelist)
   if (!violation && settings.anti_link) {
-    const urlRegex = /(https?:\/\/[^\s]+)/i;
-    if (urlRegex.test(content)) {
-      violation = {
-        type: 'unauthorized_link',
-        label: 'Unauthorized External Link / URL',
-        detail: 'Posting external links without authorization is prohibited.',
-      };
+    const urlRegex = /(https?:\/\/[^\s]+)/gi;
+    const foundUrls = content.match(urlRegex);
+
+    if (foundUrls && foundUrls.length > 0) {
+      const channelId = message.channel.id;
+      const channelRules = settings.channel_link_rules || {};
+      const customRule = channelRules[channelId];
+
+      if (customRule) {
+        // Channel has specific custom rule
+        if (customRule.mode === 'allow_all') {
+          // Permitted: Any link allowed in this channel
+        } else if (customRule.mode === 'block_all') {
+          // Blocked: All links strictly forbidden in this channel
+          violation = {
+            type: 'unauthorized_link',
+            label: 'Unauthorized External Link / URL',
+            detail: `External links are strictly blocked in <#${channelId}>.`,
+          };
+        } else if (customRule.mode === 'whitelist') {
+          const allowedDomains = customRule.allowed_domains || [];
+          const unapprovedUrls = foundUrls.filter(u => !isUrlAllowed(u, allowedDomains));
+
+          if (unapprovedUrls.length > 0) {
+            const domainPreview = allowedDomains.map(d => `\`${d}\``).join(', ');
+            violation = {
+              type: 'unauthorized_link',
+              label: 'Unapproved Link in Whitelisted Channel',
+              detail: `Only approved links (${domainPreview || 'none'}) are allowed in <#${channelId}>.`,
+            };
+          }
+        }
+      } else {
+        // Fallback to Server Default Link Policy
+        const defaultPolicy = settings.default_link_policy || 'block_all';
+        if (defaultPolicy === 'block_all') {
+          violation = {
+            type: 'unauthorized_link',
+            label: 'Unauthorized External Link / URL',
+            detail: 'Posting external links without authorization is prohibited.',
+          };
+        }
+        // If defaultPolicy === 'allow_all', links pass through
+      }
     }
   }
 
@@ -222,91 +405,70 @@ export async function inspectMessage(message) {
   // 2. Record Strike
   const strikeCount = recordUserStrike(guildId, userId);
 
-  // 3. Determine Punishment Action based on punishment_mode
-  let actionTaken = 'warn';
-  const mode = settings.punishment_mode || 'warn_timeout_ban';
+  // 3. Determine Punishment Action based on Policy & Strikes
+  let actionTaken = 'Warned & Message Deleted';
+  let penaltyEmbedColor = 0xffa500; // Orange warning
 
-  if (mode === 'warn_only') {
-    actionTaken = 'warn';
-  } else if (mode === 'warn_timeout') {
-    if (strikeCount >= settings.max_strikes_before_timeout) {
-      actionTaken = 'timeout';
-    } else {
-      actionTaken = 'warn';
-    }
-  } else if (mode === 'warn_timeout_ban') {
+  const policy = settings.punishment_mode || 'warn_timeout_ban';
+
+  if (policy === 'warn_timeout_ban') {
     if (strikeCount >= settings.max_strikes_before_ban) {
-      actionTaken = 'ban';
+      // Auto-Ban
+      const banned = await message.member?.ban({ reason: `[AutoMod Shield] 3 Strikes reached: ${violation.label}` }).catch(() => null);
+      actionTaken = banned ? '🔨 Auto-Banned from Server (3 Strikes)' : 'Warned (Ban permission failed)';
+      penaltyEmbedColor = 0xd90429;
     } else if (strikeCount >= settings.max_strikes_before_timeout) {
-      actionTaken = 'timeout';
-    } else {
-      actionTaken = 'warn';
-    }
-  }
-
-  // 4. Apply Action
-  const member = message.member || (await message.guild.members.fetch(userId).catch(() => null));
-
-  if (actionTaken === 'ban') {
-    if (member && member.bannable) {
-      await member.ban({
-        reason: `Cohesion Shield AutoMod: ${violation.label} (Accumulated ${strikeCount} strikes)`,
-      }).catch(err => console.warn('[AUTOMOD BAN WARN]:', err.message));
-
-      await message.channel.send({
-        content: `🔨 <@${userId}> was automatically **banned** for excessive violations (${violation.label}).`,
-      }).catch(() => null);
-    } else {
-      actionTaken = 'timeout'; // fallback if bot cannot ban (e.g. hierarchy)
-    }
-  }
-
-  if (actionTaken === 'timeout') {
-    if (member && member.moderatable) {
+      // Timeout (10 minutes)
       const timeoutMs = (settings.timeout_duration_minutes || 10) * 60 * 1000;
-      await member.timeout(timeoutMs, `Cohesion Shield AutoMod: ${violation.label}`).catch(err => console.warn('[AUTOMOD TIMEOUT WARN]:', err.message));
-
-      const alertMsg = await message.channel.send({
-        content: `⏱️ <@${userId}> has been **timed out for ${settings.timeout_duration_minutes} minutes** for repeated violations (${violation.label} • Strike ${strikeCount}).`,
-      }).catch(() => null);
-
-      if (alertMsg) setTimeout(() => alertMsg.delete().catch(() => null), 8000);
-    } else {
-      actionTaken = 'warn'; // fallback if bot cannot timeout
+      const timedOut = await message.member?.timeout(timeoutMs, `[AutoMod Shield] Strike ${strikeCount}: ${violation.label}`).catch(() => null);
+      actionTaken = timedOut ? `⏱️ Timed Out for ${settings.timeout_duration_minutes}m (Strike ${strikeCount})` : 'Warned (Timeout permission failed)';
+      penaltyEmbedColor = 0xef233c;
+    }
+  } else if (policy === 'warn_timeout') {
+    if (strikeCount >= settings.max_strikes_before_timeout) {
+      const timeoutMs = (settings.timeout_duration_minutes || 10) * 60 * 1000;
+      const timedOut = await message.member?.timeout(timeoutMs, `[AutoMod Shield] Strike ${strikeCount}: ${violation.label}`).catch(() => null);
+      actionTaken = timedOut ? `⏱️ Timed Out for ${settings.timeout_duration_minutes}m (Strike ${strikeCount})` : 'Warned (Timeout permission failed)';
+      penaltyEmbedColor = 0xef233c;
     }
   }
 
-  if (actionTaken === 'warn') {
-    const alertMsg = await message.channel.send({
-      content: `⚠️ <@${userId}>, **Warning (Strike ${strikeCount})**: ${violation.label} is prohibited in this server!`,
-    }).catch(() => null);
-
-    if (alertMsg) setTimeout(() => alertMsg.delete().catch(() => null), 6000);
-  }
-
-  // 5. Send Security Audit Log Embed to #cohesion-logs
+  // 4. Send self-deleting ephemeral-style warning in the channel
   try {
-    const actionBadge =
-      actionTaken === 'ban' ? '🚨 AUTO-BANNED' : actionTaken === 'timeout' ? '⏱️ TIMED OUT' : '⚠️ WARNED & DELETED';
-    const actionColor = actionTaken === 'ban' ? 0xd90429 : actionTaken === 'timeout' ? 0xf77f00 : 0xffb703;
+    const warningEmbed = new EmbedBuilder()
+      .setColor(penaltyEmbedColor)
+      .setTitle(`🛡️ Cohesion Shield • ${violation.label}`)
+      .setDescription(
+        `Hey <@${userId}>, your message in <#${message.channel.id}> was deleted.\n\n` +
+        `**Reason:** ${violation.detail}\n` +
+        `**Action:** ${actionTaken}\n` +
+        `**Active Strikes:** \`${strikeCount} / ${settings.max_strikes_before_ban}\` *(Expires in 1h)*`
+      )
+      .setFooter({ text: 'This warning will auto-delete in 8 seconds.' });
 
-    await logActivity(message.guild, {
-      title: `🛡️ Cohesion Shield: ${actionBadge}`,
-      description:
-        `A message was intercepted and deleted by AutoMod.\n\n` +
-        `👤 **Offending User:** <@${userId}> (\`${message.author.tag}\`)\n` +
-        `📍 **Channel:** <#${message.channel.id}>\n` +
-        `🚨 **Violation:** **${violation.label}**\n` +
-        `📝 **Reason / Detail:** ${violation.detail}\n` +
-        `⚖️ **Action Taken:** **${actionTaken.toUpperCase()}**\n` +
-        `⚡ **Active Strikes:** **${strikeCount}**\n` +
-        `💬 **Message Preview:** \`${content.slice(0, 150).replace(/`/g, "'")}\``,
-      color: actionColor,
-      footer: `Cohesion AutoMod Shield • Strike Policy: ${mode.replace(/_/g, ' ').toUpperCase()}`,
-    });
-  } catch (logErr) {
-    console.warn('[AUTOMOD LOG WARN]:', logErr.message);
-  }
+    const warnMsg = await message.channel.send({ embeds: [warningEmbed] }).catch(() => null);
+    if (warnMsg) {
+      setTimeout(() => warnMsg.delete().catch(() => null), 8000);
+    }
+  } catch (_) {}
 
-  return { handled: true, reason: violation.type, action: actionTaken, strikeCount };
+  // 5. Send permanent security audit record to #cohesion-logs
+  logActivity(message.guild, {
+    actionType: 'automod_violation',
+    actorId: userId,
+    targetId: message.channel.id,
+    details: {
+      type: violation.type,
+      label: violation.label,
+      strikes: strikeCount,
+      action: actionTaken,
+      messageSnippet: content.slice(0, 150),
+    },
+  }).catch(() => null);
+
+  return {
+    handled: true,
+    reason: violation.label,
+    action: actionTaken,
+  };
 }
