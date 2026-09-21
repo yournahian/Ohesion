@@ -4314,22 +4314,25 @@ export default {
         // Process custom snippet with Twitter linking and role tagging
         const processedSnippet = processSnippetRequirements(customText, guild, username);
 
-        // Build clean message content
-        let messageContent = `**${authorDisplayName}** just posted :\n${cleanUrl}\n\n`;
+        // Build clean message content without empty gaps or excess newlines
+        const contentLines = [];
+        contentLines.push(`**${authorDisplayName}** just posted :\n<${cleanUrl}>`);
+
         if (ctaText) {
-          messageContent += `**${ctaText}**\n`;
+          contentLines.push(`**${ctaText}**`);
         }
+
         if (hasExpiration && expireTimestampSec) {
-          messageContent += `Expires <t:${expireTimestampSec}:R>`;
+          contentLines.push(`Expires <t:${expireTimestampSec}:R>`);
         }
 
         if (processedSnippet.snippetBody) {
-          messageContent += `\n\n${processedSnippet.snippetBody}`;
+          contentLines.push(processedSnippet.snippetBody);
         }
 
         // Append bottom tag lines (e.g. @Socials, @everyone, etc.)
         if (processedSnippet.pingContent) {
-          messageContent += `\n${processedSnippet.pingContent}`;
+          contentLines.push(processedSnippet.pingContent);
         } else if (tagStr && tagStr.trim()) {
           // Backward compatibility if tag was passed
           let fallbackTag = tagStr.trim();
@@ -4338,8 +4341,10 @@ export default {
             const role = guild?.roles?.cache?.find((r) => r.name.toLowerCase() === cleanName);
             if (role) fallbackTag = `<@&${role.id}>`;
           }
-          messageContent += `\n${fallbackTag}`;
+          contentLines.push(fallbackTag);
         }
+
+        const messageContent = contentLines.filter(Boolean).join('\n\n');
 
         // Build optional Tweet Media Embed if enabled
         const embeds = [];
