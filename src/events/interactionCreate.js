@@ -7595,8 +7595,8 @@ export default {
         if (!isAuthorizedAdmin(interaction)) {
           return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
         }
-        const selectedRoleId = interaction.values[0];
-        setTicketAlertRole(guildId, selectedRoleId);
+        const selectedRoleIds = interaction.values;
+        setTicketAlertRole(guildId, selectedRoleIds);
         await interaction.deferUpdate();
         return interaction.editReply(buildTicketSettingsSelector(guildId, interaction.guild));
       }

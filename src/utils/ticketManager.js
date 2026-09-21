@@ -162,10 +162,11 @@ export async function createTicketChannel(guild, user, { subject, description })
   );
 
   const settings = getGuildSettings(guild.id);
-  const alertRoleId = settings.ticket_alert_role_id;
+  const alertRoleIds = settings.ticket_alert_role_ids || (settings.ticket_alert_role_id ? [settings.ticket_alert_role_id] : []);
+  const validRoles = alertRoleIds.filter(id => id && id !== 'disabled' && id !== 'none');
   let alertPing = '';
-  if (alertRoleId && alertRoleId !== 'disabled' && alertRoleId !== 'none') {
-    alertPing = `<@&${alertRoleId}> `;
+  if (validRoles.length > 0) {
+    alertPing = validRoles.map(id => `<@&${id}>`).join(' ') + ' ';
   }
 
   await ticketChannel.send({
