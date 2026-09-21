@@ -1964,6 +1964,12 @@ export default {
 
       // --- TICKET CONTROLS: CLOSE TICKET ---
       if (customId.startsWith('ticket_close_')) {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied:** Only server staff or Administrators can close support tickets.',
+            ephemeral: true,
+          });
+        }
         await interaction.deferReply({ ephemeral: false });
         await closeTicket(interaction.channel, interaction.user);
         return interaction.editReply({ content: '🔒 **Ticket has been closed and archived.**' });

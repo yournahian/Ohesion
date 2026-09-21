@@ -150,7 +150,7 @@ export async function createTicketChannel(guild, user, { subject, description })
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`ticket_close_${ticketChannel.id}`)
-      .setLabel('Close Ticket')
+      .setLabel('Close Ticket (Staff Only)')
       .setEmoji('🔒')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
