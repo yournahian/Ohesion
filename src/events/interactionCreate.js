@@ -1089,9 +1089,9 @@ export default {
 
         const pointsHoursInput = new TextInputBuilder()
           .setCustomId('input_points_hours')
-          .setLabel('Points & Duration (e.g. 25, 30m or 24h)')
-          .setValue('25, 24h')
-          .setPlaceholder('e.g. 25, 30m or 25, 24h (Points, Duration)')
+          .setLabel('Points & Duration (Optional Expiry)')
+          .setValue('25')
+          .setPlaceholder('e.g. 50 (No expiry) or 50, 24h or 50, 30m')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -2569,7 +2569,7 @@ export default {
           .from('tweet_quests')
           .select('*', { count: 'exact', head: true })
           .eq('guild_id', guildId)
-          .gte('expires_at', new Date().toISOString());
+          .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`);
 
         return interaction.editReply({
           content:
@@ -4099,27 +4099,41 @@ export default {
         const { username, tweetId, cleanUrl } = parsed;
 
         let points = 25;
-        let durationMs = 24 * 60 * 60 * 1000;
+        let expiresAtDate = null;
+        let hasExpiration = false;
+
         if (pointsHoursStr) {
           const parts = pointsHoursStr.split(/[,|\s]+/).filter(Boolean);
           if (parts[0]) points = parseInt(parts[0], 10) || 25;
           if (parts[1]) {
             const rawDur = parts[1].trim().toLowerCase();
-            const parsedMs = parseDuration(rawDur);
-            if (parsedMs) {
-              durationMs = parsedMs;
-            } else {
-              const num = parseInt(rawDur, 10);
-              if (!isNaN(num) && num > 0) {
-                durationMs = num * 60 * 60 * 1000;
+            // If explicit "never", "no", "0", "permanent", "none" -> keep no expiration
+            if (!['0', 'no', 'never', 'none', 'permanent', 'inf', 'infinite', 'forever'].includes(rawDur)) {
+              const parsedMs = parseDuration(rawDur);
+              if (parsedMs && parsedMs > 0) {
+                expiresAtDate = new Date(Date.now() + parsedMs);
+                hasExpiration = true;
+              } else {
+                const num = parseInt(rawDur, 10);
+                if (!isNaN(num) && num > 0) {
+                  expiresAtDate = new Date(Date.now() + num * 60 * 60 * 1000);
+                  hasExpiration = true;
+                }
               }
             }
           }
         } else {
           if (rawPoints) points = parseInt(rawPoints, 10) || 25;
           if (rawHours) {
-            const parsedMs = parseDuration(rawHours);
-            durationMs = parsedMs || (parseInt(rawHours, 10) || 24) * 60 * 60 * 1000;
+            const rawDur = rawHours.trim().toLowerCase();
+            if (!['0', 'no', 'never', 'none', 'permanent'].includes(rawDur)) {
+              const parsedMs = parseDuration(rawHours);
+              const durationMs = parsedMs || (parseInt(rawHours, 10) || 0) * 60 * 60 * 1000;
+              if (durationMs > 0) {
+                expiresAtDate = new Date(Date.now() + durationMs);
+                hasExpiration = true;
+              }
+            }
           }
         }
 
@@ -4128,8 +4142,7 @@ export default {
         const authorDisplayName = tweetMeta?.authorName || `@${username}`;
         const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn points!';
 
-        const expiresAtDate = new Date(Date.now() + durationMs);
-        const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
+        const expireTimestampSec = expiresAtDate ? Math.floor(expiresAtDate.getTime() / 1000) : null;
 
         // Determine if thumbnail/image display is enabled (Default: true)
         let showImage = true;
@@ -4274,7 +4287,9 @@ export default {
         if (ctaText) {
           messageContent += `**${ctaText}**\n`;
         }
-        messageContent += `Expires <t:${expireTimestampSec}:R>`;
+        if (hasExpiration && expireTimestampSec) {
+          messageContent += `Expires <t:${expireTimestampSec}:R>`;
+        }
 
         if (processedSnippet.snippetBody) {
           messageContent += `\n\n${processedSnippet.snippetBody}`;
@@ -4341,7 +4356,7 @@ export default {
             author_name: authorDisplayName,
             author_username: username,
             points_per_action: points,
-            expires_at: expiresAtDate.toISOString(),
+            expires_at: expiresAtDate ? expiresAtDate.toISOString() : null,
             channel_id: interaction.channelId,
             message_id: sentMessage.id,
           },

@@ -180,21 +180,35 @@ export default {
     const authorDisplayName = tweetMeta?.authorName || `@${username}`;
     const tweetBody = tweetMeta?.text || 'Engage with this post on X to earn Cohesion Points (CP)!';
 
-    // Parse duration
-    let durationMs = 24 * 60 * 60 * 1000;
+    // Parse duration (optional)
+    let expiresAtDate = null;
+    let hasExpiration = false;
+    let expireTimestampSec = null;
+
     if (rawDuration) {
-      const match = rawDuration.trim().toLowerCase().match(/^(\d+)\s*(m|h|d)$/);
-      if (match) {
-        const val = parseInt(match[1], 10);
-        const unit = match[2];
-        if (unit === 'm') durationMs = val * 60 * 1000;
-        if (unit === 'h') durationMs = val * 60 * 60 * 1000;
-        if (unit === 'd') durationMs = val * 24 * 60 * 60 * 1000;
+      const lowerDur = rawDuration.trim().toLowerCase();
+      if (!['never', 'none', 'no', '0', 'permanent', 'inf'].includes(lowerDur)) {
+        const match = lowerDur.match(/^(\d+)\s*(m|h|d)$/);
+        let durationMs = 0;
+        if (match) {
+          const val = parseInt(match[1], 10);
+          const unit = match[2];
+          if (unit === 'm') durationMs = val * 60 * 1000;
+          if (unit === 'h') durationMs = val * 60 * 60 * 1000;
+          if (unit === 'd') durationMs = val * 24 * 60 * 60 * 1000;
+        } else {
+          const num = parseInt(lowerDur, 10);
+          if (!isNaN(num) && num > 0) {
+            durationMs = num * 60 * 60 * 1000;
+          }
+        }
+        if (durationMs > 0) {
+          expiresAtDate = new Date(Date.now() + durationMs);
+          hasExpiration = true;
+          expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
+        }
       }
     }
-
-    const expiresAtDate = new Date(Date.now() + durationMs);
-    const expireTimestampSec = Math.floor(expiresAtDate.getTime() / 1000);
 
     const btnFilter = buttonsOption.toLowerCase().trim();
     const isNone = btnFilter === 'none';
@@ -254,8 +268,10 @@ export default {
     if (totalBundle > 0) requirementsList.push(`🎁 **Completion Bundle:** +${totalBundle} CP when all actions done.`);
 
     let messageContent = `**${authorDisplayName}** just posted on X:\n${cleanUrl}\n\n` +
-      `**Engage to collect your Cohesion Points (CP)**\n` +
-      `Expires <t:${expireTimestampSec}:R>`;
+      `**Engage to collect your Cohesion Points (CP)**`;
+    if (hasExpiration && expireTimestampSec) {
+      messageContent += `\nExpires <t:${expireTimestampSec}:R>`;
+    }
 
     if (requirementsList.length > 0) {
       messageContent += `\n\n${requirementsList.join('\n')}`;
@@ -316,7 +332,7 @@ export default {
           author_name: authorDisplayName,
           author_username: username,
           points_per_action: points,
-          expires_at: expiresAtDate.toISOString(),
+          expires_at: expiresAtDate ? expiresAtDate.toISOString() : null,
           channel_id: targetChannel.id,
           message_id: sentMessage.id,
         },

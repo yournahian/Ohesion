@@ -32,7 +32,7 @@ export async function getAdminPanelPayload(guild) {
     .from('tweet_quests')
     .select('*', { count: 'exact', head: true })
     .eq('guild_id', guildId)
-    .gte('expires_at', new Date().toISOString());
+    .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`);
 
   const adminEmbed = new EmbedBuilder()
     .setColor(0x06d6a0) // Emerald Green
