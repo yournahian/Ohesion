@@ -2831,7 +2831,7 @@ export default {
         });
 
         try {
-          const result = await syncGuildMessageHistory(interaction.guild, 1000);
+          const result = await syncGuildMessageHistory(interaction.guild, 50000);
           const myCount = getUserMessageCount(guildId, interaction.user.id);
 
           return interaction.editReply({

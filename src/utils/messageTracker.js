@@ -227,7 +227,7 @@ export async function auditChannelMessages(channel, options = 100) {
  * @param {import('discord.js').Guild} guild 
  * @param {number} maxPerChannel 
  */
-export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
+export async function syncGuildMessageHistory(guild, maxPerChannel = 50000) {
   if (!guild) return { channelsScanned: 0, totalMessagesFound: 0 };
 
   const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
@@ -236,6 +236,19 @@ export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
     (c) => c && c.isTextBased() && (!me || c.permissionsFor(me)?.has(['ViewChannel', 'ReadMessageHistory']))
   );
 
+  // Include base text channels and all active threads
+  const allChannelsToScan = [...textChannels.values()];
+  try {
+    const activeThreads = await guild.channels.fetchActiveThreads().catch(() => null);
+    if (activeThreads?.threads) {
+      for (const [, thread] of activeThreads.threads) {
+        if (thread.isTextBased() && (!me || thread.permissionsFor(me)?.has(['ViewChannel', 'ReadMessageHistory']))) {
+          allChannelsToScan.push(thread);
+        }
+      }
+    }
+  } catch (_) {}
+
   let channelsScanned = 0;
   let totalMessagesFound = 0;
 
@@ -243,7 +256,7 @@ export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
   const scannedUserTotals = new Map();
   const scannedChannelTotals = new Map();
 
-  for (const [, channel] of textChannels) {
+  for (const channel of allChannelsToScan) {
     try {
       channelsScanned++;
       let lastId = null;
@@ -271,6 +284,8 @@ export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
         }
 
         if (messages.size < fetchLimit) break;
+        // Small 80ms pacing to respect Discord rate limits
+        await new Promise((r) => setTimeout(r, 80));
       }
     } catch (e) {
       console.warn(`[SYNC MESSAGES] Channel ${channel.name} fetch warn:`, e.message);
