@@ -54,9 +54,9 @@ export const PRESET_CONFIGS = {
   },
   social_roles_only: {
     name: '🟣 Social & Roles Only',
-    description: 'Zero virtual currency/spending. Focuses on Quests, Raids, and direct Discord Role rewards.',
+    description: 'Zero virtual currency/spending. Focuses on Quests, Raids, Support Tickets, and direct Discord Role rewards.',
     currency: 'none',
-    modules: ['quests', 'referrals', 'attendance'],
+    modules: ['quests', 'referrals', 'attendance', 'tickets'],
   },
   custom: {
     name: '🎛️ Custom Modular Mode',
