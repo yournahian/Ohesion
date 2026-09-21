@@ -74,7 +74,7 @@ An administrator runs `/setup` just once. Ohesion automatically configures:
 ```
 10. **`👥 Invite Codes & Referrals`**: Generates a personal invite code. Shows how many members joined with your code and your earned bonus points.
 11. **`🚀 Promote My Tweet (Raid)`**: Community-funded tweet raids! Members spend their earned points to launch a raid on their own tweet.
-12. **`🎫 Support Ticket`**: Opens a modal for Subject and Description, then creates a private `#ticket-user` channel with staff.
+12. **`🎫 Support Ticket`**: Opens a modal for Subject and Description, then creates a private `#ticket-user` channel. Staff role is auto-tagged (if configured). When closed, staff can click **`[ 🔓 Reopen Ticket (Staff Only) ]`** which restores channel messaging and pings the ticket creator!
 
 ---
 
@@ -141,7 +141,7 @@ Admins run `/admin` (or click **`[ ⚙️ Feature Controls ]`** in `#cohesion-hu
 ```
 [ ⚙️ Server Mode & Modules ]  [ ✈️ Telegram Settings ]  [ 📢 Level-Up Channel ]  [ 📥 Export Userlist / CSV ]
 ```
-21. **`⚙️ Server Mode & Modules`**: Select from 4 Presets (Full Economy, Level & XP Only, Social & Roles Only, Custom) or toggle any of the 11 modules via checkboxes!
+21. **`⚙️ Server Mode & Modules`**: Select from 4 Presets, toggle any of the 11 modules via checkboxes, or click **`[ 🎫 Ticket Auto-Tag ]`** to configure which staff role gets auto-tagged when a new ticket is opened (or disable it completely)!
 22. **`✈️ Telegram Settings`**: Configure and manage the Telegram group bridge with `@OhesionBot`.
 23. **`📢 Level-Up Channel`**: Choose where level-up messages are routed (e.g. `#cohesion-levels`) or select **⛔ Disabled** to silence chat announcements!
 24. **`📥 Export Userlist / CSV`**: Opens the Unified Export Dashboard: Full Server CSV with Date-Range filters, Single Member Dossiers, and **Sync Message History** (50,000+ messages)!
