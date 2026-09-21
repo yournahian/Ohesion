@@ -1,213 +1,177 @@
-# Ohesion / Cohesion Bot — Official Documentation
-> The enterprise-grade, all-in-one Discord & Telegram gamification, social engagement, and community security engine for Web3, creators, and gaming communities.
+# ⚡ Ohesion — 100% UI-Driven Discord & Telegram Guide
+> The modern community engagement, gamification, and security engine operated entirely through **Discord Buttons, Modals, and Interactive Dashboards**.
 
-Visit the live interactive documentation portal: [https://questify-bot-7i0l.onrender.com/docs](https://questify-bot-7i0l.onrender.com/docs)
+Live Web Documentation: [https://questify-bot-7i0l.onrender.com/docs](https://questify-bot-7i0l.onrender.com/docs)
 
 ---
 
 ## 📑 Table of Contents
-1. [Overview & Key Features](#-overview--key-features)
-2. [1-Click Quick Setup (/setup)](#-1-click-quick-setup-setup)
-3. [4 Server Operating Modes](#-4-server-operating-modes)
-4. [Master Command Map (How Features Connect)](#-master-command-map-how-features-connect)
-5. [Administrator Guide](#-administrator-guide)
-   - [Managing Server Modules & Toggles](#managing-server-modules--toggles)
-   - [Cohesion Shield (AutoMod & Link Whitelisting)](#cohesion-shield-automod--link-whitelisting)
-   - [Member Data Analytics & CSV Exports](#member-data-analytics--csv-exports)
-   - [Publishing Quests & Raids](#publishing-quests--raids)
-   - [Telegram Cross-Platform Bridge](#telegram-cross-platform-bridge)
-6. [User / Member Guide](#-user--member-guide)
-   - [Connecting Twitter / X Handle](#connecting-twitter--x-handle)
-   - [Completing Quests & Earning Points](#completing-quests--earning-points)
-   - [Claiming Daily Check-in Rewards](#claiming-daily-check-in-rewards)
-   - [Leveling & Unlocking Tier Roles](#leveling--unlocking-tier-roles)
-   - [Entering Raffles, Auctions & Item Shop](#entering-raffles-auctions--item-shop)
-   - [Chaos Clash Battle Arena & Spectator Bets](#chaos-clash-battle-arena--spectator-bets)
+1. [The Zero-Command Philosophy](#-the-zero-command-philosophy)
+2. [1-Click Setup & Automated Channels](#-1-click-setup--automated-channels)
+3. [Member Experience (100% Visual Buttons)](#-member-experience-100-visual-buttons)
+   - [#cohesion-hub Interactive Buttons](#cohesion-hub-interactive-buttons)
+   - [Submitting Quests via Live Cards](#submitting-quests-via-live-cards)
    - [Opening Support Tickets](#opening-support-tickets)
-7. [Complete Command Cheatsheet](#-complete-command-cheatsheet)
+   - [Raffles, Live Auctions & Item Shop](#raffles-live-auctions--item-shop)
+   - [Chaos Clash Battle Arena & Spectator Wagers](#chaos-clash-battle-arena--spectator-wagers)
+4. [Administrator Experience (Visual Control Center)](#-administrator-experience-visual-control-center)
+   - [Managing Server Modes & Module Checkboxes](#managing-server-modes--module-checkboxes)
+   - [Cohesion Shield: Anti-Link & Channel Whitelisting](#cohesion-shield-anti-link--channel-whitelisting)
+   - [Member Intelligence: Full CSV Export & Lifetime Audit](#member-intelligence-full-csv-export--lifetime-audit)
+   - [Dropping Quests, Raffles & Marketplace Items](#dropping-quests-raffles--marketplace-items)
+5. [Telegram Cross-Platform Bridge](#-telegram-cross-platform-bridge)
+6. [Visual Interaction Flow Map](#-visual-interaction-flow-map)
 
 ---
 
-## ⚡ Overview & Key Features
+## ✨ The Zero-Command Philosophy
 
-Cohesion is built with a singular design principle: **100% Native Discord Components**. There are zero broken slash command parameter forms for regular members. Everything runs through interactive buttons, dropdown selection menus, and native modals.
+Unlike traditional bots that force members to memorize dozens of complicated slash commands with multiple required options, **Ohesion is 100% UI-driven**:
 
-* **Boost Social Activity:** Reward members for Twitter/X likes, retweets, comments, and website visits.
-* **Cohesion Shield (AutoMod):** Real-time protection against links, invite raids, message flood spam, and banned keywords. Includes per-channel customized link whitelisting.
-* **Dual Currency Engine:** Switch between Cohesion Points (CP), Server Chat XP, or pure Social Role rewards.
-* **Cross-Platform Bridge:** Bridge community activities, leaderboards, and quests directly with Telegram via `@OhesionBot`.
-* **Reward Hub:** Raffles, real-time live auctions with escrow, role marketplaces, and interactive battle arenas.
-* **Native Support Tickets:** Private 1-on-1 channels with modals, staff controls, and automatic text transcripts.
-* **Data Intelligence:** Complete server member exports in CSV format with date-range filters and lifetime message sync.
+* **Members never type slash commands:** They simply click interactive buttons in `#cohesion-hub` and on live cards to check their profile, claim daily points, enter raffles, buy roles, submit quests, or open support tickets.
+* **Admins manage with visual tools:** Every administrative feature—turning modules on/off, whitelisting links per channel, and downloading CSV files—is controlled via visual buttons and native Discord pop-up modals.
 
 ---
 
-## 🚀 1-Click Quick Setup (/setup)
+## 🚀 1-Click Setup & Automated Channels
 
-Running `/setup` configures your server in under 5 seconds with optimal categories, channels, and permissions.
+An administrator runs `/setup` just once. The bot automatically creates a complete, organized ecosystem in your server:
 
-```bash
-/setup
+### 📁 COHESION HQ (Category Automatically Created)
+* **`#cohesion-hub`** — The permanent interactive Member Control Center with all action buttons.
+* **`#cohesion-quests`** — Visual cards for social raids, Twitter quests, and website visit campaigns.
+* **`#cohesion-levels`** — Dedicated level-up announcements channel (keeps `#general` chat clean!).
+* **`#cohesion-logs`** — Private administrative audit trail for staff.
+
+---
+
+## 🧭 Member Experience (100% Visual Buttons)
+
+### `#cohesion-hub` Interactive Buttons
+In `#cohesion-hub`, members have an always-active dashboard with direct buttons:
+
+| Button | What Opens / Happens |
+| :--- | :--- |
+| **`[ 🎁 Claim Daily ]`** | Instantly awards daily points with consecutive day streak bonus multipliers. |
+| **`[ 👤 My Profile ]`** | Opens an ephemeral private card showing Level, XP progress bar, Points (CP), linked Twitter, and wallet. |
+| **`[ 🏆 Leaderboard ]`** | Shows the top 10 community leaderboard ranked by Points, XP, and Quests completed. |
+| **`[ 🛍️ Shop / Market ]`** | Opens an interactive dropdown menu to purchase Discord roles and server perks with points. |
+| **`[ 🎫 Support Ticket ]`** | Pops up a Discord Modal form (Subject & Description) and instantly opens a private 1-on-1 channel with staff. |
+| **`[ 🐦 Connect Twitter ]`** | Pops up a modal asking for the member's Twitter handle to enable 1-click quest verification. |
+| **`[ ⚔️ Chaos Clash ]`** | Opens the live battle arena lobby to join the match or wager points on fighting champions. |
+
+---
+
+### Submitting Quests via Live Cards
+When an admin drops a quest into `#cohesion-quests`, it appears as an interactive visual embed:
+1. Member clicks the tweet link directly from the card.
+2. Member completes the action (Like, Retweet, or Comment) on Twitter.
+3. Member clicks the green **`[ 🚀 Submit Quest ]`** button directly on the card.
+4. Points and XP are credited to their balance instantly!
+
+---
+
+### Opening Support Tickets
+1. Member clicks **`[ 🎫 Support Ticket ]`** in `#cohesion-hub`.
+2. A native Discord Modal asks for Subject and Issue Description.
+3. The bot creates a private channel (e.g. `#ticket-sukanto-1042`) visible only to the member and staff.
+4. Inside the ticket channel, staff have interactive buttons:
+   - **`[ 🔒 Close Ticket ]`**: Archives the ticket and revokes member typing permissions.
+   - **`[ 📄 Save Transcript ]`**: Generates a downloadable text transcript of all messages and attachments.
+   - **`[ 🗑️ Delete Channel ]`**: Safely deletes the channel.
+
+---
+
+### Raffles, Live Auctions & Item Shop
+* **Raffles:** Live giveaway cards in `#cohesion-quests` with quick-buy buttons (`[ 🎟️ Buy 1x ]`, `[ 🎟️ Buy 5x ]`, `[ 🎟️ Buy 10x ]`, `[ 🎟️ Custom ]`). Automated winner drawing with roster export.
+* **Live Auctions:** Real-time bidding card with `[ 🔨 Place Bid ]`. Automatically escrows points and refunds outbid members instantly.
+* **Item Shop:** Members open `#cohesion-hub` and select roles from the dropdown menu to purchase with points.
+
+---
+
+### Chaos Clash Battle Arena & Spectator Wagers
+* Click **`[ ⚔️ Chaos Clash ]`** in `#cohesion-hub` to view or start matches.
+* Spectators click **`[ 🪙 Place Wager ]`** to bet points on participating fighters.
+* When a fighter claims victory, the pot is split proportionally among winning bettors!
+
+---
+
+## ⚙️ Administrator Experience (Visual Control Center)
+
+Admins run `/admin` (or click **`[ ⚙️ Feature Controls ]`** in `#cohesion-hub`) to access the complete administrative control center:
+
+```
+[ 🎛️ Server Mode & Modules ]  [ 🛡️ AutoMod & Shield ]     [ 📊 Export Users & Audit ]
+[ 📢 Level-Up Channel ]        [ 🐦 Post Tweet Quest ]      [ 🎟️ Create Raffle ]
+[ 🔨 Create Auction ]          [ 🛍️ Marketplace Manager ]   [ 🎙️ Voice Snapshot ]
 ```
 
-### What `/setup` Does Automatically:
-1. **Creates Category:** `📁 COHESION HQ`
-2. **Creates Dedicated Channels:**
-   - `#cohesion-hub`: Permanent interactive community portal with quick buttons.
-   - `#cohesion-quests`: Dedicated channel for social raids and Twitter quests.
-   - `#cohesion-levels`: Dedicated level-up announcements channel (prevents chat spam in `#general`).
-   - `#cohesion-logs`: Secure private audit logging channel for staff.
-3. **Posts Interactive Hub:** Spawns the master dashboard in `#cohesion-hub` with direct buttons for Quests, Profile, Shop, Tickets, Daily Claim, and Admin Controls.
+---
+
+### Managing Server Modes & Module Checkboxes
+In `/admin` ➔ **`Server Mode & Modules`**, admins can toggle operating modes in seconds:
+
+* **`🟢 Full Economy`**: Points (CP) + XP enabled.
+* **`⚪ Level & XP Only`**: Points disabled, Server XP used as currency.
+* **`🟣 Social & Roles Only`**: Points & Level-up messages completely disabled! Focuses on Quests, Raids & Support Tickets.
+* **`🎛️ Custom Modular Mode`**: Click **`[ ⚙️ Select Active Modules ]`** and check/uncheck any of the 11 modules (Points, XP, Raffles, Auctions, Shop, Quests, Referrals, Attendance, Trivia, Battle, Tickets).
 
 ---
 
-## 🎛️ 4 Server Operating Modes
-
-Every server has different needs. In `/admin` ➔ **Server Mode & Modules**, admins can select between 4 architectures:
-
-| Mode | Currency | Level-Up Messages | Description |
-| :--- | :--- | :--- | :--- |
-| **🟢 Full Economy** | Points (CP) + XP | Enabled | Both Points & XP enabled. Best for active Web3 & gaming communities. |
-| **⚪ Level & XP Only** | Server XP Only | Enabled | Points disabled. Server XP is used for Raffles, Auctions, and Shop. |
-| **🟣 Social & Roles Only** | None (Zero Currency) | **Disabled** | No points, no leveling spam. Focuses on Quests, Raids, Tickets & Role rewards. |
-| **🎛️ Custom Modular Mode** | Configurable | Admin Toggleable | Check or uncheck any of the 11 modules to create your custom setup. |
+### Cohesion Shield: Anti-Link & Channel Whitelisting
+Click **`[ 🛡️ AutoMod & Shield ]`** in the admin panel:
+* **Toggles:** Toggle Anti-Link, Anti-Invite, and Rapid Message Flood Spam.
+* **Banned Keywords:** Click `[ 📝 Banned Words ]` to input custom scam phrases via a modal form.
+* **Punishment Policies:** Choose `⚠️ Warn Only`, `⏱️ Warn + Timeout (10m)`, or `🔨 Full Escalation (Warn ➔ 10m Timeout ➔ Auto-Ban)`.
+* **Per-Channel Custom Link Whitelist:** Click `[ 🔗 Custom Channel Links ]`:
+  1. Pick any channel from the Discord Channel dropdown.
+  2. Click `[ 🛡️ Set Allowed Links ]` and type allowed domains (e.g. `x.com, twitter.com, rialo.io`).
+  3. Approved links pass without warning; all other links are auto-deleted!
+  4. Or click `[ 🟢 Allow All ]` (for media channels) or `[ 🔴 Block All ]` (for strict general chat).
 
 ---
 
-## 🗺️ Master Command Map (How Features Connect)
+### Member Intelligence: Full CSV Export & Lifetime Audit
+Click **`[ 📊 Export Users & Audit ]`** in the admin panel:
+* **Full Server CSV Export:** Click `[ 📥 Full Server Export (CSV) ]` with optional Start Date and End Date filters. Exports all members with IDs, usernames, message counts, levels, XP, points, wallet, twitter, and join dates.
+* **Sync Message History:** 1-click button that scans all channels to the very beginning (50,000+ messages) to backfill 100% accurate lifetime counts matching Discord search!
+* **Single Member Dossier:** Select any member from a search to inspect their top active channels, lifetime messages, and download their personal CSV report.
 
-Here is how commands and features connect into complete end-to-end workflows:
+---
+
+## ✈️ Telegram Cross-Platform Bridge
+
+Connect your Discord server to an official Telegram group in 3 easy steps:
+1. Add **`@OhesionBot`** to your Telegram group as an administrator.
+2. In your Telegram group, send `/link`. The bot generates a 6-digit handshake code.
+3. In Discord, run `/pair <code>`. Both platforms are now bridged and cross-synced!
+
+---
+
+## 🗺️ Visual Interaction Flow Map
 
 ```mermaid
 flowchart TD
-    Setup["/setup (1-Click Init)"] --> Hub["#cohesion-hub"]
+    Setup["/setup (1-Click Run)"] --> Hub["#cohesion-hub"]
     Setup --> QuestsChan["#cohesion-quests"]
     Setup --> LevelsChan["#cohesion-levels"]
     Setup --> LogsChan["#cohesion-logs"]
 
-    Admin["/admin"] --> ModeSelector["Server Operating Modes"]
-    Admin --> AutoModShield["Cohesion Shield & Link Whitelists"]
-    Admin --> CSVExport["Export Userlist & Lifetime Audit"]
-    Admin --> LevelRouting["Level-Up Channel Routing"]
+    Hub --> ClaimBtn["[ 🎁 Claim Daily ] Button"]
+    Hub --> ProfileBtn["[ 👤 My Profile ] Button"]
+    Hub --> ShopBtn["[ 🛍️ Shop / Market ] Dropdown"]
+    Hub --> TicketBtn["[ 🎫 Support Ticket ] Modal"]
+    Hub --> TwitterBtn["[ 🐦 Connect Twitter ] Modal"]
+    Hub --> ClashBtn["[ ⚔️ Chaos Clash ] Lobby"]
 
-    Tweet["/tweet / /post-tweet"] --> QuestsChan
-    QuestsChan --> MemberSubmit["Member Clicks [ 🚀 Submit Quest ]"]
-    MemberSubmit --> UserBalance["Points & XP Credited"]
-    MemberSubmit --> LogsChan
+    Admin["/admin Panel"] --> Modules["[ 🎛️ Server Mode & Modules ]"]
+    Admin --> Shield["[ 🛡️ AutoMod & Shield ] + Channel Links"]
+    Admin --> Export["[ 📊 Export Users & Audit ] + CSV Download"]
+    Admin --> QuestDrop["[ 🐦 Post Tweet Quest ] Modal"]
+    Admin --> RaffleDrop["[ 🎟️ Create Raffle ] Modal"]
 
-    Daily["/claim (Daily Streak)"] --> UserBalance
-    Chat["Chatting in Channels"] --> UserBalance
-    UserBalance --> UserProfile["/profile & /rank"]
-
-    UserBalance --> Raffle["/raffle (Buy Tickets)"]
-    UserBalance --> Auction["/auction (Bid Points with Escrow)"]
-    UserBalance --> Shop["Marketplace (Buy Discord Roles)"]
-    UserBalance --> Battle["/battle (Wager Points on Fighters)"]
-
-    Hub --> TicketBtn["Click [ 🎫 Support Ticket ]"]
-    TicketBtn --> PrivateChan["Private #ticket-user Channel"]
-    PrivateChan --> Transcript["Download Transcript & Close"]
+    QuestDrop --> QuestsChan
+    QuestsChan --> QuestCard["Live Quest Card"]
+    QuestCard --> SubmitBtn["[ 🚀 Submit Quest ] Button"]
+    SubmitBtn --> Credit["Instant CP & XP Credited!"]
 ```
-
----
-
-## 🛡️ Administrator Guide
-
-### Managing Server Modules & Toggles
-- Run `/admin` or click **`[ ⚙️ Feature Controls ]`** in `#cohesion-hub`.
-- Select **`Server Mode & Modules`** ➔ Click **`[ ⚙️ Select Active Modules ]`**.
-- Check or uncheck any feature (Points Economy, Leveling & XP, Raffles, Auctions, Marketplace, Quests, Referrals, Attendance, Trivia, Battle Engine, Support Tickets).
-- Changes take effect instantly without restarting the bot.
-
-### Cohesion Shield (AutoMod & Link Whitelisting)
-- Run `/admin` ➔ Click **`[ 🛡️ AutoMod & Shield ]`**.
-- **Toggles:** Toggle Anti-Link, Anti-Invite, and Anti-Spam Flood.
-- **Custom Banned Words:** Click `[ 📝 Banned Words ]` to input custom scam phrases.
-- **Punishment Policies:** Choose between `⚠️ Warn Only`, `⏱️ Warn + Timeout`, or `🔨 Full Escalation (Warn ➔ 10m Timeout ➔ Auto-Ban)`.
-- **Per-Channel Link Whitelist:** Click `[ 🔗 Custom Channel Links ]`:
-  1. Select any channel from the dropdown (e.g. `#twitter-raids`).
-  2. Click `[ 🛡️ Set Allowed Links ]` and type allowed domains (e.g. `x.com, twitter.com, rialo.io`).
-  3. In that channel, approved links pass without warning; all other links are auto-deleted!
-  4. Or click `[ 🟢 Allow All ]` for open media channels, or `[ 🔴 Block All ]` for strict text channels.
-
-### Member Data Analytics & CSV Exports
-- Run `/admin` ➔ Click **`[ 📊 Export Users & Audit ]`**.
-- **Full Server Export:** Click `[ 📥 Full Server Export (CSV) ]` with optional Start Date and End Date filters. Exports all members with IDs, usernames, message counts, level, XP, points, wallet, twitter, and join dates.
-- **Single Member Dossier:** Click `[ 👤 Single Member Dossier ]` to view any member's breakdown of top channels and export their personal CSV.
-- **Channel Message Audit:** Click `[ 🔍 Channel Message Audit ]` to inspect messages in any channel and download a ranked CSV leaderboard.
-- **Lifetime Message History Sync:** Click `[ 🔄 Sync Message History ]` to scan all historical channel messages and backfill accurate counts.
-
-### Publishing Quests & Raids
-```bash
-/tweet tweet_url:https://x.com/username/status/123456789 points:50 expire_hours:24 tag:@Socials
-```
-- Creates an interactive quest card in `#cohesion-quests`.
-- Members submit proof with one button click.
-
-### Telegram Cross-Platform Bridge
-1. Add `@OhesionBot` to your Telegram group as administrator.
-2. In Telegram, type `/link` to receive a 6-digit handshake code.
-3. In Discord, type `/pair <code>`.
-4. The two communities are now bridged!
-
----
-
-## 👤 User / Member Guide
-
-### Connecting Twitter / X Handle
-- Type `/connect-twitter handle:your_handle` or click the button in `#cohesion-hub`.
-- Linking your handle allows the bot to instantly verify your likes, retweets, and comments.
-
-### Completing Quests & Earning Points
-1. Check `#cohesion-quests` for active quests.
-2. Complete the required actions on Twitter, YouTube, or the linked website.
-3. Click the green **`[ 🚀 Submit Quest ]`** button on the quest card.
-4. Points and XP are credited to your balance instantly!
-
-### Claiming Daily Check-in Rewards
-- Type `/claim` or click **`[ 🎁 Claim Daily ]`** in `#cohesion-hub`.
-- Build a consecutive daily streak for bonus point multipliers.
-
-### Leveling & Unlocking Tier Roles
-- Chat naturally in permitted channels to earn XP (15–25 XP per message with cooldown).
-- When leveling up, an announcement appears in `#cohesion-levels` and rewarded tier roles are automatically granted to your profile.
-
-### Entering Raffles, Auctions & Item Shop
-- **Raffles (`/raffle`):** Click quick-buy buttons (1x, 5x, 10x, or Custom) to enter ticket pools.
-- **Auctions (`/auction`):** Place live bids with points. If outbid, your points are refunded immediately.
-- **Marketplace:** Open `#cohesion-hub` and click **`[ 🛍️ Shop / Market ]`** to purchase exclusive roles with points.
-
-### Chaos Clash Battle Arena & Spectator Bets
-- Type `/battle` to launch or join a battle match.
-- Spectators can wager points on participating fighters using `[ 🪙 Place Wager ]`.
-- Winners take the split pot when their fighter claims victory!
-
-### Opening Support Tickets
-1. Open `#cohesion-hub` and click **`[ 🎫 Support Ticket ]`**.
-2. Fill in the Subject and Description in the pop-up modal.
-3. Head over to the private `#ticket-username-1234` channel to chat directly with server staff.
-4. When finished, staff can close the ticket and download a complete transcript.
-
----
-
-## ⌨️ Complete Command Cheatsheet
-
-| Command | Category | Permitted | Description |
-| :--- | :--- | :--- | :--- |
-| `/setup` | Admin | Administrator | 1-click initialization of categories, channels, and hub. |
-| `/admin` | Admin | Manage Server | Master administration center for modules, AutoMod, and exports. |
-| `/hub` | General | Everyone | Opens interactive community hub (Quests, Shop, Profile, Tickets). |
-| `/tweet` | Quests | Manage Server | Publishes an interactive Twitter raid into `#cohesion-quests`. |
-| `/post-tweet` | Quests | Manage Server | Opens advanced visual modal to draft multi-requirement quests. |
-| `/visit` | Quests | Manage Server | Publishes a website visit campaign for partnerships. |
-| `/pair` | Integration | Administrator | Pairs Discord server with official Telegram group `@OhesionBot`. |
-| `/raffle` | Economy | Manage Server | Creates an interactive ticket giveaway pool with auto drawing. |
-| `/auction` | Economy | Manage Server | Launches real-time points auction with automated escrow bidding. |
-| `/battle` | Gaming | Everyone | Launches Chaos Clash Arena tournament with spectator wagering. |
-| `/claim` | Economy | Everyone | Claims daily check-in points with streak bonus multiplier. |
-| `/profile` | Economy | Everyone | Displays points, level, XP, linked wallet, and twitter handle. |
-| `/rank` | Economy | Everyone | Displays visual rank card with tier progression bar. |
-| `/leaderboard`| Economy | Everyone | Displays top 10 members by Points, XP, or Quests. |
-| `/connect-twitter`| Social | Everyone | Links Twitter / X username for automated quest verification. |
-| `/ping` | System | Everyone | Checks bot latency and database connection status. |
-| `/help` | System | Everyone | Displays quick navigation help menu. |

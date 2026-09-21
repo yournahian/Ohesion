@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ohesion / Cohesion Bot — Master Documentation</title>
+  <title>Ohesion Bot — 100% UI-Driven Discord & Telegram Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,27 +14,19 @@
       --bg-card: #111726;
       --bg-card-hover: #161e31;
       --border-color: #1e293b;
-      --border-focus: #3b82f6;
+      --border-focus: #6366f1;
       --text-primary: #f8fafc;
       --text-secondary: #94a3b8;
       --text-muted: #64748b;
       --accent-primary: #6366f1;
-      --accent-hover: #4f46e5;
       --accent-green: #10b981;
-      --accent-orange: #f59e0b;
       --accent-purple: #8b5cf6;
       --accent-cyan: #06b6d4;
-      --accent-red: #ef4444;
-      --code-bg: #030712;
-      --sidebar-width: 300px;
+      --btn-bg: #1e293b;
+      --sidebar-width: 310px;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Inter', sans-serif;
       background-color: var(--bg-main);
@@ -42,18 +34,13 @@
       line-height: 1.6;
       display: flex;
       min-height: 100vh;
-      overflow-x: hidden;
     }
 
-    /* Top Navigation Header (Mobile / Desktop) */
     header.top-header {
       display: none;
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 60px;
-      background: rgba(7, 10, 18, 0.9);
+      top: 0; left: 0; right: 0; height: 60px;
+      background: rgba(7, 10, 18, 0.95);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border-color);
       z-index: 100;
@@ -62,15 +49,13 @@
       justify-content: space-between;
     }
 
-    /* Sidebar Navigation */
     aside.sidebar {
       width: var(--sidebar-width);
       background-color: var(--bg-sidebar);
       border-right: 1px solid var(--border-color);
       height: 100vh;
       position: fixed;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       display: flex;
       flex-direction: column;
       z-index: 90;
@@ -86,21 +71,20 @@
     }
 
     .brand-icon {
-      width: 38px;
-      height: 38px;
+      width: 40px;
+      height: 40px;
       background: linear-gradient(135deg, #6366f1, #a855f7);
       border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.25rem;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+      font-size: 1.3rem;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
     }
 
     .brand-title {
       font-size: 1.15rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
       color: #fff;
     }
 
@@ -109,7 +93,6 @@
       color: var(--text-muted);
       text-transform: uppercase;
       font-weight: 600;
-      letter-spacing: 0.05em;
     }
 
     .search-box {
@@ -126,19 +109,14 @@
       color: #fff;
       font-size: 0.875rem;
       outline: none;
-      transition: all 0.2s;
     }
 
     .search-input:focus {
       border-color: var(--border-focus);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
     }
 
-    .nav-sections {
-      padding: 1rem 0;
-      flex: 1;
-    }
-
+    .nav-sections { padding: 1rem 0; flex: 1; }
     .nav-group-title {
       font-size: 0.72rem;
       font-weight: 700;
@@ -157,15 +135,11 @@
       text-decoration: none;
       font-size: 0.875rem;
       font-weight: 500;
-      transition: all 0.15s;
       border-left: 2px solid transparent;
+      transition: all 0.15s;
     }
 
-    .nav-link:hover {
-      color: #fff;
-      background-color: rgba(255, 255, 255, 0.03);
-    }
-
+    .nav-link:hover { color: #fff; background-color: rgba(255, 255, 255, 0.03); }
     .nav-link.active {
       color: #818cf8;
       background-color: rgba(99, 102, 241, 0.08);
@@ -173,83 +147,44 @@
       font-weight: 600;
     }
 
-    .badge {
-      font-size: 0.65rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      padding: 0.15rem 0.45rem;
-      border-radius: 4px;
-      margin-left: auto;
-    }
-    .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-    .badge-green { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-    .badge-orange { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-    .badge-red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-
-    /* Main Content Area */
     main.content {
       margin-left: var(--sidebar-width);
       flex: 1;
       padding: 3rem 4rem 6rem;
-      max-width: 1050px;
+      max-width: 1080px;
     }
 
-    h1, h2, h3, h4 {
-      color: #fff;
-      letter-spacing: -0.025em;
-      font-weight: 700;
-    }
+    h1, h2, h3, h4 { color: #fff; font-weight: 700; letter-spacing: -0.02em; }
+    h1 { font-size: 2.35rem; line-height: 1.2; margin-bottom: 0.85rem; }
+    .lead { font-size: 1.15rem; color: var(--text-secondary); margin-bottom: 2rem; line-height: 1.6; }
+    h2 { font-size: 1.6rem; margin-top: 3.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); }
+    h3 { font-size: 1.2rem; margin-top: 2rem; margin-bottom: 0.75rem; color: #e2e8f0; }
+    p { margin-bottom: 1.25rem; color: var(--text-secondary); }
+    ul, ol { margin-bottom: 1.5rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    li { margin-bottom: 0.5rem; }
 
-    h1 {
-      font-size: 2.25rem;
-      line-height: 1.25;
-      margin-bottom: 0.75rem;
-    }
-
-    .lead {
-      font-size: 1.125rem;
-      color: var(--text-secondary);
-      margin-bottom: 2rem;
-      line-height: 1.6;
-    }
-
-    h2 {
-      font-size: 1.5rem;
-      margin-top: 3.5rem;
-      margin-bottom: 1rem;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
+    /* Visual Discord Buttons & UI Elements */
+    .discord-btn {
+      display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
+      background-color: #5865f2;
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.82rem;
+      padding: 0.4rem 0.85rem;
+      border-radius: 6px;
+      margin: 0.2rem 0.25rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.1);
     }
+    .discord-btn.green { background-color: #248046; }
+    .discord-btn.grey { background-color: #4e5058; }
+    .discord-btn.red { background-color: #da373c; }
 
-    h3 {
-      font-size: 1.2rem;
-      margin-top: 2rem;
-      margin-bottom: 0.75rem;
-      color: #e2e8f0;
-    }
-
-    p {
-      margin-bottom: 1.25rem;
-      color: var(--text-secondary);
-    }
-
-    ul, ol {
-      margin-bottom: 1.5rem;
-      padding-left: 1.5rem;
-      color: var(--text-secondary);
-    }
-
-    li {
-      margin-bottom: 0.5rem;
-    }
-
-    /* Cards Grid */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
       gap: 1.25rem;
       margin: 1.5rem 0 2rem;
     }
@@ -259,36 +194,56 @@
       border: 1px solid var(--border-color);
       border-radius: 12px;
       padding: 1.5rem;
-      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      transition: all 0.2s;
     }
-
     .card:hover {
       transform: translateY(-2px);
       border-color: #334155;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
     }
 
-    .card-icon {
-      font-size: 1.75rem;
-      margin-bottom: 0.75rem;
+    .card-icon { font-size: 1.75rem; margin-bottom: 0.65rem; }
+    .card-title { font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 0.4rem; }
+    .card-desc { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+
+    .ui-panel-box {
+      background: linear-gradient(180deg, #131b2e 0%, #0d1322 100%);
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 1.75rem;
+      margin: 1.75rem 0;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
     }
 
-    .card-title {
-      font-size: 1.05rem;
-      font-weight: 600;
+    .ui-panel-title {
+      font-size: 1.15rem;
+      font-weight: 700;
       color: #fff;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
-    .card-desc {
-      font-size: 0.875rem;
-      color: var(--text-muted);
-      line-height: 1.5;
+    .ui-panel-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
     }
 
-    /* Alert Boxes (GitHub style) */
+    .ui-button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      background: rgba(0,0,0,0.25);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.05);
+      margin-bottom: 1rem;
+    }
+
     .alert {
-      padding: 1rem 1.25rem;
+      padding: 1.1rem 1.35rem;
       border-radius: 8px;
       margin: 1.5rem 0;
       display: flex;
@@ -296,69 +251,13 @@
       border-left: 4px solid;
       background-color: var(--bg-card);
     }
-    .alert-info { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
-    .alert-tip { border-left-color: #10b981; background: rgba(16, 185, 129, 0.05); }
-    .alert-warning { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
-    .alert-danger { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.05); }
-    .alert-title { font-weight: 600; color: #fff; margin-bottom: 0.2rem; font-size: 0.95rem; }
+    .alert-info { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.06); }
+    .alert-tip { border-left-color: #10b981; background: rgba(16, 185, 129, 0.06); }
+    .alert-warning { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.06); }
+
+    .alert-title { font-weight: 600; color: #fff; margin-bottom: 0.2rem; }
     .alert-content { font-size: 0.875rem; color: var(--text-secondary); }
 
-    /* Code Blocks & Command Snippets */
-    code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85em;
-      background-color: var(--code-bg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-      color: #e2e8f0;
-    }
-
-    .command-box {
-      background-color: var(--code-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      padding: 1.25rem 1.5rem;
-      margin: 1.25rem 0 1.75rem;
-      position: relative;
-    }
-
-    .command-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .command-code {
-      font-family: 'JetBrains Mono', monospace;
-      color: #38bdf8;
-      font-size: 1rem;
-      font-weight: 500;
-      display: block;
-    }
-
-    .copy-btn {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #e2e8f0;
-      padding: 0.3rem 0.6rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .copy-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-    }
-
-    /* Comparison & Flow Tables */
     table.doc-table {
       width: 100%;
       border-collapse: collapse;
@@ -377,7 +276,6 @@
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -389,73 +287,11 @@
       vertical-align: top;
     }
 
-    table.doc-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    /* Connection Diagram Box */
-    .connection-flow {
-      background: linear-gradient(180deg, #111726 0%, #0c1220 100%);
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 1.75rem;
-      margin: 2rem 0;
-    }
-
-    .flow-step {
-      display: flex;
-      gap: 1rem;
-      align-items: flex-start;
-      margin-bottom: 1.25rem;
-      position: relative;
-    }
-
-    .flow-step:last-child {
-      margin-bottom: 0;
-    }
-
-    .flow-num {
-      width: 32px;
-      height: 32px;
-      background: #6366f1;
-      color: #fff;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 0.875rem;
-      flex-shrink: 0;
-    }
-
-    .flow-content h4 {
-      font-size: 0.98rem;
-      margin-bottom: 0.25rem;
-      color: #fff;
-    }
-
-    .flow-content p {
-      font-size: 0.875rem;
-      margin-bottom: 0;
-      color: var(--text-muted);
-    }
-
-    /* Responsive */
     @media (max-width: 900px) {
-      aside.sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-      }
-      aside.sidebar.open {
-        transform: translateX(0);
-      }
-      header.top-header {
-        display: flex;
-      }
-      main.content {
-        margin-left: 0;
-        padding: 5rem 1.5rem 4rem;
-      }
+      aside.sidebar { transform: translateX(-100%); transition: transform 0.3s ease; }
+      aside.sidebar.open { transform: translateX(0); }
+      header.top-header { display: flex; }
+      main.content { margin-left: 0; padding: 5rem 1.5rem 4rem; }
     }
   </style>
 </head>
@@ -465,9 +301,9 @@
   <header class="top-header">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
       <div class="brand-icon">⚡</div>
-      <span style="font-weight: 700;">Cohesion Docs</span>
+      <span style="font-weight: 700;">Ohesion Guide</span>
     </div>
-    <button id="menu-toggle" class="copy-btn">Menu ☰</button>
+    <button id="menu-toggle" style="background:#1e293b;color:#fff;border:none;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;">Menu ☰</button>
   </header>
 
   <!-- Sidebar -->
@@ -475,509 +311,310 @@
     <div class="brand">
       <div class="brand-icon">⚡</div>
       <div>
-        <div class="brand-title">Cohesion / Ohesion</div>
-        <div class="brand-subtitle">Documentation Hub</div>
+        <div class="brand-title">Ohesion</div>
+        <div class="brand-subtitle">100% UI-Driven Discord Engine</div>
       </div>
     </div>
 
     <div class="search-box">
-      <input type="text" id="doc-search" class="search-input" placeholder="Search commands, features..." />
+      <input type="text" id="doc-search" class="search-input" placeholder="Search features, buttons..." />
     </div>
 
     <div class="nav-sections">
-      <div class="nav-group-title">Getting Started</div>
-      <a href="#overview" class="nav-link active">⚡ Introduction & Core</a>
-      <a href="#setup" class="nav-link">🚀 1-Click Server Setup <span class="badge badge-green">/setup</span></a>
-      <a href="#server-modes" class="nav-link">🎛️ 4 Server Operating Modes</a>
-      <a href="#telegram-bridge" class="nav-link">✈️ Telegram Cross-Sync <span class="badge badge-primary">/pair</span></a>
+      <div class="nav-group-title">The UI Philosophy</div>
+      <a href="#philosophy" class="nav-link active">✨ Zero-Command Design</a>
+      <a href="#setup" class="nav-link">🚀 1-Click Setup & Channels</a>
 
-      <div class="nav-group-title">Cohesion Shield (Security)</div>
-      <a href="#automod" class="nav-link">🛡️ AutoMod & Flood Control</a>
-      <a href="#custom-links" class="nav-link">🔗 Channel Link Rules & Whitelists</a>
-      <a href="#escalation" class="nav-link">⚖️ Punishment Escalation</a>
+      <div class="nav-group-title">Member Experience (100% Buttons)</div>
+      <a href="#member-hub" class="nav-link">🧭 The Interactive Hub</a>
+      <a href="#member-quests" class="nav-link">🎯 Submitting Quests</a>
+      <a href="#member-tickets" class="nav-link">🎫 Support Tickets</a>
+      <a href="#member-economy" class="nav-link">🪙 Daily, Shop, Raffles & Bets</a>
 
-      <div class="nav-group-title">Social Quests & Raids</div>
-      <a href="#twitter-quests" class="nav-link">🐦 Twitter / X Raids & Quests</a>
-      <a href="#visit-other" class="nav-link">🌐 Website Visit & CMC / YT</a>
-      <a href="#hub-portal" class="nav-link">🧭 Cohesion Community Hub</a>
+      <div class="nav-group-title">Admin Control Center</div>
+      <a href="#admin-panel" class="nav-link">⚙️ Control Center Dashboard</a>
+      <a href="#admin-modes" class="nav-link">🎛️ Server Modes & Modules</a>
+      <a href="#admin-shield" class="nav-link">🛡️ AutoMod & Channel Links</a>
+      <a href="#admin-exports" class="nav-link">📊 Member CSV Exports & Audit</a>
+      <a href="#admin-drops" class="nav-link">🎁 Dropping Quests, Raffles & Shop</a>
 
-      <div class="nav-group-title">Economy & Gamification</div>
-      <a href="#dual-currency" class="nav-link">🪙 Dual Currency (CP vs XP)</a>
-      <a href="#leveling-roles" class="nav-link">🎉 Leveling & Tier Roles</a>
-      <a href="#daily-claims" class="nav-link">🎁 Daily Rewards & Attendance</a>
-
-      <div class="nav-group-title">Reward Hub & Marketplace</div>
-      <a href="#raffles" class="nav-link">🎟️ Interactive Raffles & Pools</a>
-      <a href="#auctions" class="nav-link">🔨 Real-time Live Auctions</a>
-      <a href="#marketplace" class="nav-link">🛍️ Roles & Items Marketplace</a>
-      <a href="#battles" class="nav-link">⚔️ Chaos Clash Arena & Bets</a>
-
-      <div class="nav-group-title">Tickets & Intelligence</div>
-      <a href="#tickets" class="nav-link">🎫 Native Support Tickets</a>
-      <a href="#analytics" class="nav-link">📊 CSV Exports & Lifetime Audit</a>
-
-      <div class="nav-group-title">Reference</div>
-      <a href="#command-map" class="nav-link">🗺️ Master Command Map</a>
-      <a href="#cheatsheet" class="nav-link">⌨️ All Commands Cheatsheet</a>
+      <div class="nav-group-title">Platform Integration</div>
+      <a href="#telegram-bridge" class="nav-link">✈️ Telegram Cross-Sync</a>
+      <a href="#interaction-map" class="nav-link">🗺️ Visual Interaction Map</a>
     </div>
   </aside>
 
   <!-- Main Content -->
   <main class="content">
 
-    <!-- 1. OVERVIEW -->
-    <section id="overview">
-      <h1>Ohesion / Cohesion Bot Documentation</h1>
-      <p class="lead">The enterprise-grade, all-in-one Discord & Telegram gamification, social engagement, and community security engine for Web3, creators, and gaming communities.</p>
+    <!-- 1. PHILOSOPHY -->
+    <section id="philosophy">
+      <h1>Ohesion — 100% UI-Driven Community Engine</h1>
+      <p class="lead">Forget memorizing 30 different slash commands and broken parameter forms. Ohesion is designed from the ground up to be operated entirely through <strong>native Discord Buttons, Dropdown Menus, and Pop-up Modals</strong>.</p>
 
       <div class="alert alert-info">
-        <div style="font-size: 1.5rem;">💡</div>
+        <div style="font-size: 1.5rem;">🖱️</div>
         <div>
-          <div class="alert-title">One Bot. Zero Broken Slash Commands. 100% Native Discord UI.</div>
-          <div class="alert-content">Cohesion operates completely through interactive Discord components (Buttons, Dropdown Select Menus, and Pop-up Modals). Members never have to memorize confusing command parameters.</div>
+          <div class="alert-title">How Members & Admins Use Ohesion:</div>
+          <div class="alert-content">
+            • <strong>Members never type commands:</strong> They visit <code>#cohesion-hub</code> and click interactive buttons for their Profile, Daily Points, Role Shop, Support Tickets, and Quests.<br>
+            • <strong>Admins manage with visual controls:</strong> Every setting—from turning modules on/off, whitelisting links per channel, to exporting CSV files—is done via visual buttons and Discord modal popups!
+          </div>
         </div>
       </div>
 
       <div class="card-grid">
         <div class="card">
-          <div class="card-icon">🚀</div>
-          <div class="card-title">Automated Engagement</div>
-          <div class="card-desc">Boost tweet engagement by up to 200%, reward member retweets, comments, and website visits in real-time.</div>
+          <div class="card-icon">🔘</div>
+          <div class="card-title">1-Click Buttons</div>
+          <div class="card-desc">Instant actions for claiming daily points, entering raffles, placing auction bids, and closing support tickets.</div>
         </div>
         <div class="card">
-          <div class="card-icon">🛡️</div>
-          <div class="card-title">Cohesion Shield</div>
-          <div class="card-desc">Military-grade community protection against spam floods, phishing, and channel-by-channel link whitelisting.</div>
+          <div class="card-icon">📝</div>
+          <div class="card-title">Discord Modals</div>
+          <div class="card-desc">Clean, error-free popup forms for ticket issues, quest submissions, raffle creations, and date filters.</div>
         </div>
         <div class="card">
-          <div class="card-icon">🪙</div>
-          <div class="card-title">Dual Currency Economy</div>
-          <div class="card-desc">Switch seamlessly between virtual Cohesion Points (CP), Server Chat XP, or pure social role rewards.</div>
-        </div>
-        <div class="card">
-          <div class="card-icon">✈️</div>
-          <div class="card-title">Telegram Bridge</div>
-          <div class="card-desc">Cross-sync quests, raffles, and community leaderboards between your Discord server and Telegram group.</div>
+          <div class="card-icon">🎛️</div>
+          <div class="card-title">Dropdown Selectors</div>
+          <div class="card-desc">Multi-select menus for enabling/disabling features and selecting channels for custom link whitelists.</div>
         </div>
       </div>
     </section>
 
     <!-- 2. SETUP -->
     <section id="setup">
-      <h2>🚀 1-Click Server Setup</h2>
-      <p>Setting up Cohesion takes literally 5 seconds with zero manual channel or permission configuration required.</p>
+      <h2>🚀 1-Click Setup & Automated Channels</h2>
+      <p>To initialize Ohesion, an administrator runs <strong>`/setup`</strong> just once. The bot automatically creates a dedicated ecosystem in your server:</p>
 
-      <div class="command-box">
-        <div class="command-header">
-          <span>Discord Admin Command</span>
-          <button class="copy-btn" onclick="copyText('/setup')">Copy</button>
-        </div>
-        <span class="command-code">/setup</span>
-      </div>
-
-      <h3>What happens automatically when you run /setup:</h3>
-      <ol>
-        <li><strong>Category Creation:</strong> Creates a clean <code>📁 COHESION HQ</code> category with tailored permission overrides.</li>
-        <li><strong>Dedicated Channels:</strong>
-          <ul>
-            <li><code>#cohesion-hub</code> — Master interactive member control center.</li>
-            <li><code>#cohesion-quests</code> — Dedicated social raids and Twitter quest channel.</li>
-            <li><code>#cohesion-levels</code> — Dedicated level-up announcements channel (stops general chat spam!).</li>
-            <li><code>#cohesion-logs</code> — Private administrative audit trail.</li>
-          </ul>
-        </li>
-        <li><strong>Interactive Hub Deployment:</strong> Spawns the persistent interactive dashboard in <code>#cohesion-hub</code> with direct buttons for Quests, Profile, Daily Claim, Shop, Tickets, Leaderboards, and Admin Feature Controls.</li>
-      </ol>
-    </section>
-
-    <!-- 3. SERVER MODES -->
-    <section id="server-modes">
-      <h2>🎛️ 4 Server Operating Modes</h2>
-      <p>Every community is unique. Cohesion lets server admins choose between 4 distinct operating architectures with a single click in <code>/admin</code> ➔ <strong>Server Mode & Modules</strong>:</p>
-
-      <table class="doc-table">
-        <thead>
-          <tr>
-            <th>Mode</th>
-            <th>Active Currency</th>
-            <th>Level Up Messages</th>
-            <th>Ideal Community Type</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>🟢 Full Economy</strong></td>
-            <td>Points (CP) + XP</td>
-            <td>✅ Enabled</td>
-            <td>Web3 projects, crypto communities, gaming clans with rewards.</td>
-          </tr>
-          <tr>
-            <td><strong>⚪ Level & XP Only</strong></td>
-            <td>Server XP Only</td>
-            <td>✅ Enabled</td>
-            <td>Community servers who want chat leveling without virtual tokens.</td>
-          </tr>
-          <tr>
-            <td><strong>🟣 Social & Roles Only</strong></td>
-            <td>None (Zero Currency)</td>
-            <td>❌ 100% Disabled</td>
-            <td>Communities who want Twitter quests, raids & support tickets without leveling spam or currency.</td>
-          </tr>
-          <tr>
-            <td><strong>🎛️ Custom Modular Mode</strong></td>
-            <td>Configurable</td>
-            <td>Admin Toggleable</td>
-            <td>Full freedom: enable or disable any of the 11 modular features.</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <!-- 4. TELEGRAM BRIDGE -->
-    <section id="telegram-bridge">
-      <h2>✈️ Telegram Cross-Platform Bridge</h2>
-      <p>Connect your Discord server to an official Telegram group with zero API keys or complex bot registrations.</p>
-
-      <div class="connection-flow">
-        <div class="flow-step">
-          <div class="flow-num">1</div>
-          <div class="flow-content">
-            <h4>Add @OhesionBot to your Telegram Group</h4>
-            <p>Promote @OhesionBot as administrator in your Telegram discussion group.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">2</div>
-          <div class="flow-content">
-            <h4>Generate One-Time Pairing Code</h4>
-            <p>In your Telegram group, send <code>/link</code>. The bot generates a secure 6-digit handshake code.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">3</div>
-          <div class="flow-content">
-            <h4>Complete Handshake in Discord</h4>
-            <p>In any Discord channel, type <code>/pair &lt;code&gt;</code>. Both platforms are instantly bridged!</p>
-          </div>
-        </div>
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">📁 COHESION HQ (Category Automatically Created)</div>
+        <div class="ui-panel-desc">Everything your community needs is cleanly organized into 4 dedicated channels:</div>
+        <ul>
+          <li><strong><code>#cohesion-hub</code></strong> — The permanent interactive Member Dashboard with all action buttons.</li>
+          <li><strong><code>#cohesion-quests</code></strong> — Visual cards for social media raids, Twitter quests, and website visits.</li>
+          <li><strong><code>#cohesion-levels</code></strong> — Dedicated level-up announcements channel (keeps <code>#general</code> chat clean!).</li>
+          <li><strong><code>#cohesion-logs</code></strong> — Private security audit logs, quest verifications, and marketplace purchases.</li>
+        </ul>
       </div>
     </section>
 
-    <!-- 5. COHESION SHIELD -->
-    <section id="automod">
-      <h2>🛡️ Cohesion Shield (AutoMod & Community Security)</h2>
-      <p>Cohesion Shield operates in real-time on every chat message, inspecting content before allowing it to post.</p>
+    <!-- 3. MEMBER HUB -->
+    <section id="member-hub">
+      <h2>🧭 Member Experience: The Interactive Hub</h2>
+      <p>In <strong>`#cohesion-hub`</strong>, members have an always-active, self-updating visual control center. They never have to guess what commands exist:</p>
 
-      <div class="command-box">
-        <div class="command-header">
-          <span>Access Shield Dashboard</span>
-          <button class="copy-btn" onclick="copyText('/admin')">Copy</button>
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">📌 Live Buttons in #cohesion-hub</div>
+        <div class="ui-panel-desc">Members simply click these buttons to perform any action:</div>
+
+        <div class="ui-button-row">
+          <span class="discord-btn green">🎁 Claim Daily</span>
+          <span class="discord-btn">👤 My Profile</span>
+          <span class="discord-btn">🏆 Leaderboard</span>
+          <span class="discord-btn">🛍️ Shop / Market</span>
+          <span class="discord-btn">🎫 Support Ticket</span>
+          <span class="discord-btn">🐦 Connect Twitter</span>
+          <span class="discord-btn">⚔️ Chaos Clash</span>
         </div>
-        <span class="command-code">/admin ➔ Click [ 🛡️ AutoMod & Shield ]</span>
+
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Button Clicked</th>
+              <th>What Opens / Happens</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>`🎁 Claim Daily`</strong></td>
+              <td>Instantly awards daily points with consecutive day streak bonus multipliers.</td>
+            </tr>
+            <tr>
+              <td><strong>`👤 My Profile`</strong></td>
+              <td>Opens an ephemeral private card showing Level, XP progress bar, Points (CP), linked Twitter, and wallet.</td>
+            </tr>
+            <tr>
+              <td><strong>`🏆 Leaderboard`</strong></td>
+              <td>Shows the top 10 community leaderboard ranked by Points, XP, and Quests completed.</td>
+            </tr>
+            <tr>
+              <td><strong>`🛍️ Shop / Market`</strong></td>
+              <td>Opens an interactive dropdown menu to purchase Discord roles and server perks with points.</td>
+            </tr>
+            <tr>
+              <td><strong>`🎫 Support Ticket`</strong></td>
+              <td>Pops up a Discord Modal form (Subject & Description) and instantly opens a private 1-on-1 channel with staff.</td>
+            </tr>
+            <tr>
+              <td><strong>`🐦 Connect Twitter`</strong></td>
+              <td>Pops up a modal asking for the member's Twitter handle to enable 1-click quest verification.</td>
+            </tr>
+            <tr>
+              <td><strong>`⚔️ Chaos Clash`</strong></td>
+              <td>Opens the live battle arena lobby to join the match or wager points on fighting champions.</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-
-      <h3>Core Shield Modules:</h3>
-      <ul>
-        <li><strong>🔗 Anti-Link Protection:</strong> Server-wide detection and automatic instant deletion of unapproved URLs and hyperlinks.</li>
-        <li><strong>🚪 Anti-Invite Blocker:</strong> Auto-detects and removes rogue Discord invite links (e.g. <code>discord.gg/...</code>) from competitors or spammers.</li>
-        <li><strong>⚡ Rapid Message Flood Control:</strong> Detects burst spamming (&gt;4 messages in 3.5 seconds) and identical repetitive message copy-pasta.</li>
-        <li><strong>📝 Custom Banned Keywords:</strong> Filter out specific scam words, phishing phrases, or rival project tags.</li>
-      </ul>
     </section>
 
-    <!-- 6. CHANNEL LINK RULES -->
-    <section id="custom-links">
-      <h2>🔗 Fully Customizable Per-Channel Link Rules</h2>
-      <p>Unlike basic bots that only offer an on/off switch, Cohesion allows you to customize exact link permissions for <strong>every single channel</strong> in your server!</p>
+    <!-- 4. QUESTS -->
+    <section id="member-quests">
+      <h2>🎯 Social Quests & Raids (1-Click Verification)</h2>
+      <p>When an admin publishes a tweet or raid into <strong>`#cohesion-quests`</strong>, it appears as an interactive visual card:</p>
 
-      <div class="alert alert-tip">
-        <div style="font-size: 1.5rem;">🌟</div>
-        <div>
-          <div class="alert-title">Example Real-World Community Setup:</div>
-          <div class="alert-content">
-            • <code>#twitter-raids</code> ➔ Allow only <code>x.com, twitter.com</code><br>
-            • <code>#media-creators</code> ➔ Allow only <code>youtube.com, twitch.tv</code><br>
-            • <code>#official-links</code> ➔ Allow only your official project website (e.g. <code>rialo.io</code>)<br>
-            • <code>#general-chat</code> ➔ Block all links strictly!
-          </div>
-        </div>
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">🐦 Twitter / X Raid Card</div>
+        <div class="ui-panel-desc">Members complete the quest directly from Discord without complex commands:</div>
+        <ol>
+          <li>Member clicks the tweet link directly from the card.</li>
+          <li>Member likes, retweets, or comments on Twitter.</li>
+          <li>Member clicks the green button: <span class="discord-btn green">🚀 Submit Quest</span> directly on the card!</li>
+          <li>A clean Discord modal appears confirming the submission.</li>
+          <li>Points & XP are credited instantly to their balance!</li>
+        </ol>
       </div>
-
-      <h3>How to Configure Per-Channel Links in 30 Seconds:</h3>
-      <ol>
-        <li>Run <code>/admin</code> ➔ Click <strong>`🛡️ AutoMod & Shield`</strong>.</li>
-        <li>Click the green button <strong>`[ 🔗 Custom Channel Links ]`</strong>.</li>
-        <li>Select your target channel from the native Discord Channel Select Menu.</li>
-        <li>Choose its rule:
-          <ul>
-            <li><strong>`[ 🛡️ Set Allowed Links ]`</strong> — Type or paste multiple allowed domains (e.g. <code>x.com, youtube.com, rialo.io</code>). Approved links pass cleanly; unapproved links get auto-deleted with a warning!</li>
-            <li><strong>`[ 🟢 Allow All ]`</strong> — Unrestricted links permitted in this channel.</li>
-            <li><strong>`[ 🔴 Block All ]`</strong> — Strictly zero links allowed.</li>
-            <li><strong>`[ 🗑️ Reset to Default ]`</strong> — Reverts to server default policy.</li>
-          </ul>
-        </li>
-      </ol>
     </section>
 
-    <!-- 7. PUNISHMENT ESCALATION -->
-    <section id="escalation">
-      <h2>⚖️ Punishment Escalation Policy</h2>
-      <p>Choose how aggressively Cohesion Shield responds when a member violates community rules:</p>
-      <ul>
-        <li><strong>⚠️ Warn Only:</strong> Deletes the offending message and posts an 8-second self-deleting friendly warning.</li>
-        <li><strong>⏱️ Warn + Timeout:</strong> Warns on strike 1; automatically mutes/times out the offender for 10 minutes on strike 2+.</li>
-        <li><strong>🔨 Full Escalation (Recommended):</strong>
-          <ul>
-            <li><strong>Strike 1:</strong> Instant message delete + warning.</li>
-            <li><strong>Strike 2:</strong> 10-minute Discord Timeout.</li>
-            <li><strong>Strike 3:</strong> Automatic Ban from the Discord server.</li>
-          </ul>
-        </li>
-      </ul>
-      <p><em>*Strikes automatically expire after 1 hour of clean behavior. Admins can click <code>[ 🔄 Reset Strikes ]</code> anytime.</em></p>
-    </section>
-
-    <!-- 8. SOCIAL QUESTS -->
-    <section id="twitter-quests">
-      <h2>🎯 Social Quests & Raids (Twitter / X)</h2>
-      <p>Reward your community members for liking, retweeting, following, and commenting on your social media posts.</p>
-
-      <div class="command-box">
-        <div class="command-header">
-          <span>Publish Tweet Quest</span>
-          <button class="copy-btn" onclick="copyText('/tweet')">Copy</button>
-        </div>
-        <span class="command-code">/tweet &lt;tweet_url&gt; [points] [expire_hours] [tag] [custom_text]</span>
-      </div>
-
-      <h3>How Members Complete Quests:</h3>
-      <ol>
-        <li>Members connect their Twitter handle once via <code>/connect-twitter</code> or in <code>#cohesion-hub</code>.</li>
-        <li>When an admin publishes a tweet quest in <code>#cohesion-quests</code>, an interactive quest card appears with <code>[ 🚀 Submit Quest ]</code>.</li>
-        <li>Members click the button, paste their response or proof, and instantly receive their Points & XP!</li>
-        <li>Every completed quest is permanently logged in <code>#cohesion-logs</code>.</li>
-      </ol>
-    </section>
-
-    <!-- 9. REWARD HUB -->
-    <section id="raffles">
-      <h2>🎁 Reward Hub (Raffles, Auctions, Market & Clash)</h2>
-      <p>Turn community engagement into excitement by allowing members to spend their earned Points (CP) or XP on exclusive rewards.</p>
+    <!-- 5. TICKETS -->
+    <section id="member-tickets">
+      <h2>🎫 Native Support Tickets (100% Discord UI)</h2>
+      <p>No messy external web dashboards. Ticketing is handled entirely through Discord Modals and Channel Control Buttons:</p>
 
       <div class="card-grid">
         <div class="card">
-          <div class="card-icon">🎟️</div>
-          <div class="card-title">Interactive Raffles</div>
-          <div class="card-desc">Command: <code>/raffle</code>. Create ticket pools where members purchase entries with quick-buy buttons (1x, 5x, 10x, Custom). Automated winner drawing with CSV roster export.</div>
+          <div class="card-icon">1️⃣</div>
+          <div class="card-title">Modal Creation</div>
+          <div class="card-desc">Clicking <span class="discord-btn">🎫 Support Ticket</span> opens a clean modal asking for the Subject and Detailed Description.</div>
         </div>
         <div class="card">
-          <div class="card-icon">🔨</div>
-          <div class="card-title">Real-time Live Auctions</div>
-          <div class="card-desc">Command: <code>/auction</code>. Members place live bids with automatic point escrow. If outbid, points are refunded instantly. Highest bidder wins at countdown.</div>
+          <div class="card-icon">2️⃣</div>
+          <div class="card-title">Private Channel</div>
+          <div class="card-desc">Bot creates a private channel (e.g. <code>#ticket-sukanto-1042</code>) visible only to the member and staff members.</div>
         </div>
         <div class="card">
-          <div class="card-icon">🛍️</div>
-          <div class="card-title">Role Marketplace</div>
-          <div class="card-desc">Interactive item shop inside <code>#cohesion-hub</code>. Members spend points to unlock special Discord roles, whitelist spots, and VIP perks.</div>
-        </div>
-        <div class="card">
-          <div class="card-icon">⚔️</div>
-          <div class="card-title">Chaos Clash Arena</div>
-          <div class="card-desc">Command: <code>/battle</code>. Turn-based battle arena where members join as fighters and spectators wager points on the winner in a proportional split-pot pool!</div>
+          <div class="card-icon">3️⃣</div>
+          <div class="card-title">Staff Action Buttons</div>
+          <div class="card-desc">Inside the ticket: <span class="discord-btn grey">🔒 Close Ticket</span>, <span class="discord-btn">📄 Save Transcript</span>, and <span class="discord-btn red">🗑️ Delete Channel</span>.</div>
         </div>
       </div>
     </section>
 
-    <!-- 10. TICKETS -->
-    <section id="tickets">
-      <h2>🎫 Native Discord Support Tickets</h2>
-      <p>100% native Discord ticketing system without broken external web dashboards.</p>
+    <!-- 6. ADMIN CONTROL CENTER -->
+    <section id="admin-panel">
+      <h2>⚙️ Administrator Control Center</h2>
+      <p>Admins manage the entire bot through a single command <strong>`/admin`</strong> (or by clicking <span class="discord-btn grey">⚙️ Feature Controls</span> right in <code>#cohesion-hub</code>). Everything is controlled via visual buttons:</p>
 
-      <h3>Ticket Lifecycle:</h3>
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">🎛️ Control Center Dashboard Buttons</div>
+        <div class="ui-panel-desc">All admin features accessible at a glance:</div>
+
+        <div class="ui-button-row">
+          <span class="discord-btn">🎛️ Server Mode & Modules</span>
+          <span class="discord-btn green">🛡️ AutoMod & Shield</span>
+          <span class="discord-btn">📊 Export Users & Audit</span>
+          <span class="discord-btn">📢 Level-Up Channel</span>
+          <span class="discord-btn">🐦 Post Tweet Quest</span>
+          <span class="discord-btn">🎟️ Create Raffle</span>
+          <span class="discord-btn">🔨 Create Auction</span>
+          <span class="discord-btn">🛍️ Marketplace Manager</span>
+          <span class="discord-btn">🎙️ Voice Snapshot</span>
+          <span class="discord-btn">🎁 Reward Member</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. SERVER MODES -->
+    <section id="admin-modes">
+      <h2>🎛️ Server Modes & Module Toggles</h2>
+      <p>Turn features on or off in real-time with visual dropdown menus:</p>
+
+      <div class="alert alert-tip">
+        <div style="font-size: 1.5rem;">💡</div>
+        <div>
+          <div class="alert-title">Turning Off Points & Level-Up Spam:</div>
+          <div class="alert-content">
+            • <strong>Option A (1-Click):</strong> Select <strong>`🟣 Social & Roles Only`</strong>. Points and level-up messages turn off instantly while Quests and Support Tickets stay active!<br>
+            • <strong>Option B (Custom):</strong> In <strong>`Custom Modular Mode`</strong>, click <strong>`[ ⚙️ Select Active Modules ]`</strong> and uncheck <strong>`Points Economy (CP)`</strong> and <strong>`Leveling & XP`</strong>!
+          </div>
+        </div>
+      </div>
+
+      <p>Active modules you can toggle with checkboxes: Points Economy, Leveling & XP, Raffles & Giveaways, Live Auctions, Marketplace & Roles, Quests & Social Feeds, Referral Codes, Attendance & VC XP, Trivia & Quizzes, Battle Engine, and Support Tickets.</p>
+    </section>
+
+    <!-- 8. SHIELD & CHANNEL LINKS -->
+    <section id="admin-shield">
+      <h2>🛡️ Cohesion Shield & Per-Channel Link Whitelists</h2>
+      <p>Clicking <span class="discord-btn green">🛡️ AutoMod & Shield</span> in the admin panel gives you complete security controls:</p>
+
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">🔗 Custom Channel Links Manager</div>
+        <div class="ui-panel-desc">Admins click <span class="discord-btn green">🔗 Custom Channel Links</span> to set independent link rules for every channel:</div>
+
+        <ol>
+          <li>Pick any channel from the native Discord Channel Select Menu.</li>
+          <li>Click <span class="discord-btn">🛡️ Set Allowed Links</span> ➔ A modal opens where you type approved domains (e.g. <code>x.com, twitter.com, rialo.io</code>).</li>
+          <li>In that channel: approved links pass cleanly; unapproved links are auto-deleted with a friendly reminder!</li>
+          <li>Or click <span class="discord-btn green">Allow All</span> (for media channels) or <span class="discord-btn red">Block All</span> (for strict general chat).</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 9. EXPORTS & AUDIT -->
+    <section id="admin-exports">
+      <h2>📊 Member Intelligence & CSV Data Exports</h2>
+      <p>Clicking <span class="discord-btn">📊 Export Users & Audit</span> opens the visual data management center:</p>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">📥</div>
+          <div class="card-title">Full Server CSV Export</div>
+          <div class="card-desc">Prompts a date modal (Start Date & End Date). Generates an enterprise CSV of all members with message counts, levels, XP, wallet, and twitter handles.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔄</div>
+          <div class="card-title">Sync Message History</div>
+          <div class="card-desc">1-click button that scans all channels to the very beginning (50,000+ messages) to backfill 100% accurate lifetime counts matching Discord search!</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">👤</div>
+          <div class="card-title">Single Member Dossier</div>
+          <div class="card-desc">Select any member to inspect their top active channels, lifetime messages, and download their personal CSV report.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. TELEGRAM BRIDGE -->
+    <section id="telegram-bridge">
+      <h2>✈️ Telegram Cross-Platform Handshake</h2>
+      <p>Connect your Discord server to an official Telegram group in 3 easy steps:</p>
       <ol>
-        <li>Member clicks <strong>`[ 🎫 Support Ticket ]`</strong> in <code>#cohesion-hub</code>.</li>
-        <li>A native Discord Modal opens asking for Subject & Issue Description.</li>
-        <li>The bot creates a private channel <code>#ticket-username-1234</code> under <code>🎫 SUPPORT TICKETS</code> visible only to the member and staff.</li>
-        <li>The ticket channel contains interactive control buttons:
-          <ul>
-            <li><strong>`[ 🔒 Close Ticket ]`</strong> — Archives the ticket and revokes member typing permission.</li>
-            <li><strong>`[ 📄 Save Transcript ]`</strong> — Generates a downloadable text transcript of all messages and attachments.</li>
-            <li><strong>`[ 🗑️ Delete Channel ]`</strong> — Safely cleans up the channel.</li>
-          </ul>
-        </li>
+        <li>Add <strong>@OhesionBot</strong> to your Telegram group as an administrator.</li>
+        <li>In your Telegram group, send <code>/link</code>. The bot generates a 6-digit handshake code.</li>
+        <li>In Discord, run <code>/pair &lt;code&gt;</code>. Both platforms are now bridged and cross-synced!</li>
       </ol>
     </section>
 
-    <!-- 11. ANALYTICS -->
-    <section id="analytics">
-      <h2>📊 Member Intelligence & CSV Data Export</h2>
-      <p>Access full community analytics, member dossiers, and enterprise-grade CSV exports directly from Discord.</p>
+    <!-- 11. INTERACTION MAP -->
+    <section id="interaction-map">
+      <h2>🗺️ Master Visual Interaction Map</h2>
+      <p>How the interactive components flow together:</p>
 
-      <div class="command-box">
-        <div class="command-header">
-          <span>Open Export Dashboard</span>
-          <button class="copy-btn" onclick="copyText('/admin')">Copy</button>
-        </div>
-        <span class="command-code">/admin ➔ Click [ 📊 Export Users & Audit ]</span>
+      <div class="ui-panel-box">
+        <div class="ui-panel-title">Flow Diagram</div>
+        <p><strong>1. Initial Setup:</strong> <code>/setup</code> ➔ Creates <code>📁 COHESION HQ</code> ➔ Deploys <code>#cohesion-hub</code> dashboard.<br>
+        <strong>2. Member Hub:</strong> Members click buttons (Profile, Daily Claim, Shop, Tickets) ➔ Instant ephemeral responses.<br>
+        <strong>3. Social Raids:</strong> Admin posts quest ➔ Appears in <code>#cohesion-quests</code> ➔ Members click <code>[ 🚀 Submit Quest ]</code> ➔ Points & XP awarded.<br>
+        <strong>4. Spending Points:</strong> Members spend points via buttons in Raffles, Live Auctions, Item Shop, and Chaos Clash arena.<br>
+        <strong>5. Security:</strong> Cohesion Shield monitors all channels ➔ Enforces per-channel link whitelists and auto-bans raid spammers.</p>
       </div>
-
-      <h3>Export Features:</h3>
-      <ul>
-        <li><strong>Full Server Export (CSV):</strong> Exports 100% of server members with Discord ID, Username, Messages Sent, Level, XP, Points, Wallet Address, Twitter Handle, and Join Dates. Includes <strong>unified Date-Range filtering (Start Date & End Date)</strong>.</li>
-        <li><strong>Single Member Dossier:</strong> Inspect any individual member's exact statistics, top channels where they chat, and download their personal CSV report.</li>
-        <li><strong>Channel Message Audit:</strong> Run an audit on any specific channel to see who chats the most, with an instant CSV leaderboard download.</li>
-        <li><strong>Lifetime Message History Sync:</strong> Scans all past channel messages to backfill historical message counts with 100% accuracy matching Discord Search.</li>
-      </ul>
-    </section>
-
-    <!-- 12. COMMAND MAP -->
-    <section id="command-map">
-      <h2>🗺️ Master Command Map (How Features Connect)</h2>
-      <p>Understand how Cohesion's commands connect with each other across administrative and user workflows:</p>
-
-      <div class="connection-flow">
-        <div class="flow-step">
-          <div class="flow-num">A</div>
-          <div class="flow-content">
-            <h4>Setup & Foundation</h4>
-            <p><code>/setup</code> ➔ creates channels ➔ posts <code>#cohesion-hub</code> ➔ configures <code>#cohesion-levels</code> & <code>#cohesion-logs</code>.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">B</div>
-          <div class="flow-content">
-            <h4>Admin Control & Customization</h4>
-            <p><code>/admin</code> ➔ controls Operating Modes, AutoMod Shield, Per-Channel Links, CSV Exports & Level-Up routing.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">C</div>
-          <div class="flow-content">
-            <h4>Earning Points & XP</h4>
-            <p><code>/tweet</code> (Quests) + Chatting in channels + <code>/claim</code> (Daily) + <code>/voice snapshot</code> ➔ Points (CP) & XP credited to Member Record.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">D</div>
-          <div class="flow-content">
-            <h4>Spending Points & Levelling</h4>
-            <p>Points spent in <code>/raffle</code>, <code>/auction</code>, <code>#cohesion-hub</code> (Shop), or <code>/battle</code> (Chaos Clash Wagers). XP drives <code>/rank</code> and <code>/leaderboard</code>.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">E</div>
-          <div class="flow-content">
-            <h4>Community Support & Safety</h4>
-            <p><code>#cohesion-hub</code> ➔ Support Tickets. Cohesion Shield ➔ auto-deletes scam links and manages per-channel link permissions.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 13. CHEATSHEET -->
-    <section id="cheatsheet">
-      <h2>⌨️ All Commands Cheatsheet</h2>
-
-      <table class="doc-table">
-        <thead>
-          <tr>
-            <th>Command</th>
-            <th>Role</th>
-            <th>Description & Connected Flow</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>/setup</code></td>
-            <td>Admin</td>
-            <td>1-click server initialization: categories, channels, and hub deployment.</td>
-          </tr>
-          <tr>
-            <td><code>/admin</code></td>
-            <td>Admin</td>
-            <td>Master administration center: Modules, AutoMod Shield, Link Rules, Exports.</td>
-          </tr>
-          <tr>
-            <td><code>/hub</code></td>
-            <td>Everyone</td>
-            <td>Opens member interactive dashboard: Profile, Quests, Shop, Tickets, Daily Claim.</td>
-          </tr>
-          <tr>
-            <td><code>/tweet</code></td>
-            <td>Admin</td>
-            <td>Publishes an interactive Twitter raid / quest into <code>#cohesion-quests</code>.</td>
-          </tr>
-          <tr>
-            <td><code>/pair &lt;code&gt;</code></td>
-            <td>Admin</td>
-            <td>Connects Discord server with official Telegram group @OhesionBot.</td>
-          </tr>
-          <tr>
-            <td><code>/raffle</code></td>
-            <td>Admin</td>
-            <td>Launches an interactive ticket giveaway pool with automatic winner drawing.</td>
-          </tr>
-          <tr>
-            <td><code>/auction</code></td>
-            <td>Admin</td>
-            <td>Creates a live points-based auction with instant escrow bidding.</td>
-          </tr>
-          <tr>
-            <td><code>/battle</code></td>
-            <td>Everyone</td>
-            <td>Starts Chaos Clash Arena tournament with spectator wagering.</td>
-          </tr>
-          <tr>
-            <td><code>/claim</code></td>
-            <td>Everyone</td>
-            <td>Claims daily check-in points with streak bonus multiplier.</td>
-          </tr>
-          <tr>
-            <td><code>/profile</code></td>
-            <td>Everyone</td>
-            <td>Displays member points, level, XP progress, wallet, and quest count.</td>
-          </tr>
-          <tr>
-            <td><code>/rank</code></td>
-            <td>Everyone</td>
-            <td>Displays member rank card with progress bar toward next tier level.</td>
-          </tr>
-          <tr>
-            <td><code>/leaderboard</code></td>
-            <td>Everyone</td>
-            <td>Displays top 10 members ranked by Points, XP, or Quest completions.</td>
-          </tr>
-          <tr>
-            <td><code>/connect-twitter</code></td>
-            <td>Everyone</td>
-            <td>Links member Twitter / X handle for instant quest verification.</td>
-          </tr>
-          <tr>
-            <td><code>/visit</code></td>
-            <td>Admin</td>
-            <td>Launches rewarded website visit campaign for partnerships.</td>
-          </tr>
-          <tr>
-            <td><code>/ping</code></td>
-            <td>Everyone</td>
-            <td>Checks bot API response latency and database health status.</td>
-          </tr>
-        </tbody>
-      </table>
     </section>
 
   </main>
 
   <script>
-    // Copy Command to Clipboard
-    function copyText(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        alert('Copied to clipboard: ' + text);
-      }).catch(() => {
-        prompt('Copy command:', text);
-      });
-    }
-
     // Mobile Menu Toggle
     const menuToggle = document.getElementById('menu-toggle');
     const sidebar = document.getElementById('sidebar');
@@ -987,7 +624,7 @@
       });
     }
 
-    // Live Documentation Search
+    // Live Search
     const searchInput = document.getElementById('doc-search');
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
@@ -997,25 +634,17 @@
 
         sections.forEach((sec) => {
           const text = sec.innerText.toLowerCase();
-          if (!query || text.includes(query)) {
-            sec.style.display = 'block';
-          } else {
-            sec.style.display = 'none';
-          }
+          sec.style.display = (!query || text.includes(query)) ? 'block' : 'none';
         });
 
         navLinks.forEach((link) => {
           const text = link.innerText.toLowerCase();
-          if (!query || text.includes(query)) {
-            link.style.display = 'flex';
-          } else {
-            link.style.display = 'none';
-          }
+          link.style.display = (!query || text.includes(query)) ? 'flex' : 'none';
         });
       });
     }
 
-    // Active link highlighting on scroll
+    // Active Link Scroll
     window.addEventListener('scroll', () => {
       const sections = document.querySelectorAll('main.content section');
       const navLinks = document.querySelectorAll('.nav-link');
