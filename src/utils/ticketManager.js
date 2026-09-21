@@ -221,7 +221,7 @@ export async function generateTicketTranscript(channel) {
  * @param {import('discord.js').TextChannel} channel 
  * @param {import('discord.js').User} closedByUser 
  */
-export async function closeTicket(channel, closedByUser) {
+export async function closeTicket(channel, closedByUser, interaction = null) {
   // Find creator ID from topic
   const topicMatch = channel.topic?.match(/\((\d{17,20})\)/);
   const creatorId = topicMatch ? topicMatch[1] : null;
@@ -232,6 +232,16 @@ export async function closeTicket(channel, closedByUser) {
     await channel.permissionOverwrites.edit(creatorId, {
       SendMessages: false,
     }).catch(() => null);
+  }
+
+  // Disable active buttons from the message where Close was clicked
+  if (interaction?.message) {
+    const disabledRows = interaction.message.components.map((row) => {
+      const newRow = ActionRowBuilder.from(row);
+      newRow.components.forEach((c) => c.setDisabled(true));
+      return newRow;
+    });
+    await interaction.message.edit({ components: disabledRows }).catch(() => null);
   }
 
   const transcript = await generateTicketTranscript(channel);
@@ -272,14 +282,39 @@ export async function closeTicket(channel, closedByUser) {
  * Reopens a closed ticket channel, restoring member permissions and tagging the requester.
  * @param {import('discord.js').TextChannel} channel 
  * @param {import('discord.js').User} reopenedByUser 
+ * @param {import('discord.js').ButtonInteraction} [interaction]
  */
-export async function reopenTicket(channel, reopenedByUser) {
+export async function reopenTicket(channel, reopenedByUser, interaction = null) {
   // Find creator ID from topic
   const topicMatch = channel.topic?.match(/\((\d{17,20})\)/);
   const creatorId = topicMatch ? topicMatch[1] : null;
+  const ticketKey = creatorId ? `${channel.guild.id}:${creatorId}` : null;
+
+  // Prevent multiple executions if already open
+  if (ticketKey && activeTickets.has(ticketKey) && activeTickets.get(ticketKey) === channel.id) {
+    if (interaction?.message) {
+      const cleanedRows = interaction.message.components.map((row) => {
+        const newRow = ActionRowBuilder.from(row);
+        newRow.setComponents(row.components.filter((c) => !c.customId?.startsWith('ticket_reopen_')));
+        return newRow;
+      }).filter((r) => r.components.length > 0);
+      await interaction.message.edit({ components: cleanedRows }).catch(() => null);
+    }
+    return { alreadyOpen: true };
+  }
+
+  // Remove the Reopen button from the closed message so it cannot be clicked multiple times
+  if (interaction?.message) {
+    const cleanedRows = interaction.message.components.map((row) => {
+      const newRow = ActionRowBuilder.from(row);
+      newRow.setComponents(row.components.filter((c) => !c.customId?.startsWith('ticket_reopen_')));
+      return newRow;
+    }).filter((r) => r.components.length > 0);
+    await interaction.message.edit({ components: cleanedRows }).catch(() => null);
+  }
 
   if (creatorId) {
-    activeTickets.set(`${channel.guild.id}:${creatorId}`, channel.id);
+    activeTickets.set(ticketKey, channel.id);
     // Restore creator typing permissions
     await channel.permissionOverwrites.edit(creatorId, {
       ViewChannel: true,

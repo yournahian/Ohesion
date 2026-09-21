@@ -1979,8 +1979,8 @@ export default {
             ephemeral: true,
           });
         }
-        await interaction.deferReply({ ephemeral: false });
-        await closeTicket(interaction.channel, interaction.user);
+        await interaction.deferReply({ ephemeral: true });
+        await closeTicket(interaction.channel, interaction.user, interaction);
         return interaction.editReply({ content: '🔒 **Ticket has been closed and archived.**' });
       }
 
@@ -1992,8 +1992,11 @@ export default {
             ephemeral: true,
           });
         }
-        await interaction.deferReply({ ephemeral: false });
-        await reopenTicket(interaction.channel, interaction.user);
+        await interaction.deferReply({ ephemeral: true });
+        const res = await reopenTicket(interaction.channel, interaction.user, interaction);
+        if (res?.alreadyOpen) {
+          return interaction.editReply({ content: 'ℹ️ **This ticket is already active and open.**' });
+        }
         return interaction.editReply({ content: '🔓 **Ticket has been successfully reopened!**' });
       }
 
