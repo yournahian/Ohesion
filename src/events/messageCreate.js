@@ -4,7 +4,7 @@ import { isUserOnMessageCooldown } from '../utils/cooldowns.js';
 import { getLevelFromXp, POINTS_PER_LEVEL } from '../utils/levelCalculator.js';
 import { trackMessage } from '../utils/messageTracker.js';
 import { inspectMessage } from '../utils/autoModEngine.js';
-import { getGuildSettings } from '../utils/guildSettings.js';
+import { getGuildSettings, isModuleEnabled } from '../utils/guildSettings.js';
 import { verifyAndPair } from '../utils/tgBridgeManager.js';
 
 export default {
@@ -47,6 +47,11 @@ export default {
 
     // Track message activity across channel & user
     trackMessage(guildId, message.channel.id, userId);
+
+    // 🛡️ If Leveling & XP module is disabled for this server, abort XP & Level-up processing!
+    if (!isModuleEnabled(guildId, 'xp')) {
+      return;
+    }
 
     const authorUsername = message.author.username || message.author.tag || 'Member';
     const isCooldown = isUserOnMessageCooldown(guildId, userId);
@@ -100,7 +105,8 @@ export default {
 
       if (calculatedLevel > currentLevel) {
         const levelsGained = calculatedLevel - currentLevel;
-        const bonusPoints = levelsGained * POINTS_PER_LEVEL;
+        const pointsEnabled = isModuleEnabled(guildId, 'points');
+        const bonusPoints = pointsEnabled ? levelsGained * POINTS_PER_LEVEL : 0;
         const updatedPoints = currentPoints + bonusPoints;
 
         // Persist level-up in database FIRST before sending announcement
@@ -138,12 +144,15 @@ export default {
         }
 
         // Level Up Announcement
+        const pointsBonusText = pointsEnabled && bonusPoints > 0
+          ? `\n\n🪙 **+${bonusPoints} Cohesion Points (CP)** have been added to your balance.`
+          : '';
+
         const levelUpEmbed = new EmbedBuilder()
           .setColor(0x5865f2)
           .setTitle('🎉 Level Up!')
           .setDescription(
-            `Congratulations <@${userId}>! You've reached **Level ${calculatedLevel}**!\n\n` +
-            `🪙 **+${bonusPoints} Cohesion Points (CP)** have been added to your balance.${roleAwardText}`
+            `Congratulations <@${userId}>! You've reached **Level ${calculatedLevel}**!${pointsBonusText}${roleAwardText}`
           )
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .setFooter({ text: 'Cohesion Gamification System' });
