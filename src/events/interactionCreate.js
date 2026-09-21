@@ -2892,12 +2892,24 @@ export default {
 
       // --- D. MEMBER HUB: REFRESH STATS ---
       if (customId === 'hub_refresh') {
-        await interaction.deferUpdate();
         const guild =
           interaction.guild ||
           (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
         const payload = await buildHubPayload(guild, interaction.user, interaction.member);
-        return interaction.editReply(payload);
+
+        const isEphemeral = interaction.message?.flags?.has(MessageFlags.Ephemeral);
+        if (isEphemeral) {
+          // If already in a private ephemeral /hub session, update in-place
+          await interaction.deferUpdate();
+          return interaction.editReply(payload);
+        } else {
+          // If clicked from a public channel (e.g. #cohesion-hub), reply ephemerally
+          // so the channel's shared public hub is NEVER overwritten by another member's data!
+          return interaction.reply({
+            ...payload,
+            ephemeral: true,
+          });
+        }
       }
 
       // --- E. MEMBER HUB: DAILY CLAIM ---
