@@ -79,28 +79,15 @@ export default {
         await supabase.from('users').insert({
           guild_id: guildId,
           discord_id: userId,
-          username: authorUsername,
           xp: earnedXp,
           level: newLevel,
           total_points: 0,
-          messages_sent: 1,
         });
         return;
       }
 
-      const currentMessages = Number(userRecord.messages_sent || 0) + 1;
-
-      // If user is on XP cooldown, still count the message & keep username fresh
+      // If user is on XP cooldown, message is already tracked. Abort XP processing.
       if (isCooldown) {
-        await supabase
-          .from('users')
-          .update({
-            username: authorUsername,
-            messages_sent: currentMessages,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('guild_id', guildId)
-          .eq('discord_id', userId);
         return;
       }
 
@@ -116,18 +103,22 @@ export default {
         const bonusPoints = levelsGained * POINTS_PER_LEVEL;
         const updatedPoints = currentPoints + bonusPoints;
 
-        await supabase
+        // Persist level-up in database FIRST before sending announcement
+        const { error: updateError } = await supabase
           .from('users')
           .update({
-            username: authorUsername,
             xp: newXp,
             level: calculatedLevel,
             total_points: updatedPoints,
-            messages_sent: currentMessages,
             updated_at: new Date().toISOString(),
           })
           .eq('guild_id', guildId)
           .eq('discord_id', userId);
+
+        if (updateError) {
+          console.error('[XP SYSTEM ERROR] Failed to save level up to database:', updateError);
+          return;
+        }
 
         // Check for Level Role Reward
         const { data: roleReward } = await supabase
@@ -182,12 +173,11 @@ export default {
           await sendChannel.send({ embeds: [levelUpEmbed] }).catch(() => null);
         }
       } else {
-        // Just update XP & message count
+        // Just update XP
         await supabase
           .from('users')
           .update({
             xp: newXp,
-            messages_sent: currentMessages,
             updated_at: new Date().toISOString(),
           })
           .eq('guild_id', guildId)
