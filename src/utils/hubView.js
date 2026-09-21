@@ -273,16 +273,7 @@ export async function buildHubPayload(guild, user, member = null) {
     );
   }
 
-  // Feature Controls: Only visible to Administrators
-  if (isAdmin) {
-    row3Components.push(
-      new ButtonBuilder()
-        .setCustomId('hub_toggle_features')
-        .setLabel('Feature Controls')
-        .setEmoji('⚙️')
-        .setStyle(ButtonStyle.Primary)
-    );
-  }
+
 
   const components = [actionRow1, actionRow2];
   if (row3Components.length > 0) {
