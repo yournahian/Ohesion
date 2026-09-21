@@ -47,7 +47,12 @@ export function buildExportDashboard(guildId, guildName) {
       .setCustomId('btn_export_single_user_prompt')
       .setLabel('Single Member Dossier')
       .setEmoji('👤')
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_sync_all_history')
+      .setLabel('Sync Discord History')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Primary)
   );
 
   return { embeds: [embed], components: [actionRow1], ephemeral: true };

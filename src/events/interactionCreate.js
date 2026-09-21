@@ -30,6 +30,7 @@ import {
   getUserMessageCount,
   getUserChannelBreakdown,
   auditChannelMessages,
+  syncGuildMessageHistory,
 } from '../utils/messageTracker.js';
 import {
   buildAutoModDashboard,
@@ -2681,6 +2682,33 @@ export default {
 
         const modal = buildSingleUserDossierModal();
         return interaction.showModal(modal);
+      }
+
+      // --- ADMIN: SYNC ALL HISTORICAL DISCORD MESSAGES ---
+      if (customId === 'btn_sync_all_history') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Administrator` or `Manage Server` permissions to sync message history.',
+            ephemeral: true,
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.editReply({
+          content: '⏳ **Auditing Server Channels...** Scanning past messages from all readable text channels to build 100% accurate lifetime member message statistics. Please wait a moment...',
+        });
+
+        const result = await syncGuildMessageHistory(interaction.guild, 1000);
+        const myCount = getUserMessageCount(guildId, interaction.user.id);
+
+        return interaction.editReply({
+          content:
+            `✅ **Message History Sync Complete!**\n\n` +
+            `• Channels Audited: **${result.channelsScanned}**\n` +
+            `• Messages Scanned & Indexed: **${result.totalMessagesFound.toLocaleString()}**\n` +
+            `• Your Synced Message Count: **${myCount.toLocaleString()}**\n\n` +
+            `*All historical messages have been permanently saved to disk! Your stats in Full Server Export and Single Member Dossier are now 100% accurate.*`,
+        });
       }
 
       // --- ADMIN: DOWNLOAD SINGLE USER CSV ---
