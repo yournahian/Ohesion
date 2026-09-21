@@ -2830,17 +2830,24 @@ export default {
           content: '⏳ **Auditing Server Channels...** Scanning past messages from all readable text channels to build 100% accurate lifetime member message statistics. Please wait a moment...',
         });
 
-        const result = await syncGuildMessageHistory(interaction.guild, 1000);
-        const myCount = getUserMessageCount(guildId, interaction.user.id);
+        try {
+          const result = await syncGuildMessageHistory(interaction.guild, 1000);
+          const myCount = getUserMessageCount(guildId, interaction.user.id);
 
-        return interaction.editReply({
-          content:
-            `✅ **Message History Sync Complete!**\n\n` +
-            `• Channels Audited: **${result.channelsScanned}**\n` +
-            `• Messages Scanned & Indexed: **${result.totalMessagesFound.toLocaleString()}**\n` +
-            `• Your Synced Message Count: **${myCount.toLocaleString()}**\n\n` +
-            `*All historical messages have been permanently saved to disk! Your stats in Full Server Export and Single Member Dossier are now 100% accurate.*`,
-        });
+          return interaction.editReply({
+            content:
+              `✅ **Message History Sync Complete!**\n\n` +
+              `• Channels Audited: **${result.channelsScanned}**\n` +
+              `• Messages Scanned & Indexed: **${result.totalMessagesFound.toLocaleString()}**\n` +
+              `• Your Synced Message Count: **${myCount.toLocaleString()}**\n\n` +
+              `*All historical messages have been permanently saved to database and disk! Your stats in Full Server Export and Single Member Dossier are now 100% accurate.*`,
+          });
+        } catch (err) {
+          console.error('[SYNC ERROR]:', err);
+          return interaction.editReply({
+            content: `⚠️ An error occurred during message history sync: ${err.message}`,
+          });
+        }
       }
 
       // --- ADMIN: DOWNLOAD SINGLE USER CSV ---

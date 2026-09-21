@@ -288,15 +288,16 @@ export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
     userTotalStats.set(userKey, finalCount);
 
     // Save permanently to Supabase users table!
-    await supabase
-      .from('users')
-      .update({
-        messages_sent: finalCount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('guild_id', guild.id)
-      .eq('discord_id', uId)
-      .catch(() => null);
+    try {
+      await supabase
+        .from('users')
+        .update({
+          messages_sent: finalCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('guild_id', guild.id)
+        .eq('discord_id', uId);
+    } catch (_) {}
   }
 
   // Immediately persist to disk
