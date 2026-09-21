@@ -53,6 +53,19 @@ http
         }
       }
 
+      // Serve interactive documentation portal: /docs or /
+      if (parsedUrl.pathname === '/' || parsedUrl.pathname === '/docs') {
+        const docsPath = path.resolve('docs/index.html');
+        if (fs.existsSync(docsPath)) {
+          const html = fs.readFileSync(docsPath, 'utf-8');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Length': Buffer.byteLength(html, 'utf-8'),
+          });
+          return res.end(html);
+        }
+      }
+
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('Cohesion Bot is active and healthy!\n');
     } catch (err) {
