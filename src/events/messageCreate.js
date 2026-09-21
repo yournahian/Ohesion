@@ -174,7 +174,7 @@ export default {
         }
       } else {
         // Just update XP
-        await supabase
+        const { error: xpUpdateError } = await supabase
           .from('users')
           .update({
             xp: newXp,
@@ -182,6 +182,10 @@ export default {
           })
           .eq('guild_id', guildId)
           .eq('discord_id', userId);
+
+        if (xpUpdateError) {
+          console.error('[XP UPDATE ERROR] Failed to save XP:', xpUpdateError);
+        }
       }
     } catch (err) {
       console.error('[XP SYSTEM ERROR]:', err);
