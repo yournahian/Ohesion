@@ -29,6 +29,17 @@ export default {
       });
     }
 
+    // Clean up previous bot messages in this channel to prevent duplicates
+    try {
+      const oldMessages = await interaction.channel.messages.fetch({ limit: 15 }).catch(() => null);
+      if (oldMessages && oldMessages.size > 0) {
+        const botMsgs = oldMessages.filter((m) => m.author.id === interaction.client.user?.id);
+        for (const [, msg] of botMsgs) {
+          await msg.delete().catch(() => null);
+        }
+      }
+    } catch (_) {}
+
     const payload = buildPublicPortalPayload(guild);
     await interaction.channel.send(payload);
 

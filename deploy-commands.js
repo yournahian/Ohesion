@@ -16,7 +16,7 @@ async function getCommandFiles(dir) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-  const UI_COMMANDS = new Set(['hub', 'admin', 'setup', 'battle']);
+  const UI_COMMANDS = new Set(['hub', 'battle', 'admin', 'setup', 'post-hub']);
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
@@ -26,7 +26,9 @@ async function getCommandFiles(dir) {
       const commandModule = await import(pathToFileURL(fullPath).href);
       const command = commandModule.default || commandModule;
       if (command && 'data' in command && 'execute' in command) {
-        commands.push(command.data.toJSON());
+        if (UI_COMMANDS.has(command.data.name)) {
+          commands.push(command.data.toJSON());
+        }
       }
     }
   }

@@ -84,6 +84,17 @@ export default {
         });
       }
 
+      // Clean up previous bot messages in #cohesion-hub so there are never duplicates!
+      try {
+        const oldMessages = await hubChannel.messages.fetch({ limit: 15 }).catch(() => null);
+        if (oldMessages && oldMessages.size > 0) {
+          const botMsgs = oldMessages.filter((m) => m.author.id === interaction.client.user?.id);
+          for (const [, msg] of botMsgs) {
+            await msg.delete().catch(() => null);
+          }
+        }
+      } catch (_) {}
+
       // Send the clean public Community Portal interface with single [View My Profile / Hub] button
       const hubPayload = buildPublicPortalPayload(guild);
       await hubChannel.send(hubPayload);
