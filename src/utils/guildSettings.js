@@ -20,6 +20,7 @@ import {
   StringSelectMenuOptionBuilder,
   ChannelSelectMenuBuilder,
   ChannelType,
+  RoleSelectMenuBuilder,
 } from 'discord.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -243,7 +244,12 @@ export function buildServerModePayload(guildId, guildName) {
       .setCustomId('btn_config_custom_modules')
       .setLabel('🎛️ Select Active Modules')
       .setEmoji('⚙️')
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('btn_ticket_alert_config')
+      .setLabel('🎫 Ticket Auto-Tag')
+      .setEmoji('🔔')
+      .setStyle(ButtonStyle.Success)
   );
 
   return { embeds: [embed], components: [selectRow, btnRow] };
@@ -374,3 +380,65 @@ export function buildLevelChannelPayload(guildId, guild) {
 
   return { embeds: [embed], components: [row1, row2], ephemeral: true };
 }
+
+/**
+ * Sets the auto-tag role for newly created support tickets.
+ * @param {string} guildId 
+ * @param {string} roleId 
+ */
+export function setTicketAlertRole(guildId, roleId) {
+  const current = getGuildSettings(guildId);
+  current.ticket_alert_role_id = roleId;
+  cache.set(guildId, current);
+  return current;
+}
+
+/**
+ * Builds the visual selector for Support Ticket Auto-Tag Role.
+ * @param {string} guildId 
+ * @param {import('discord.js').Guild} guild 
+ */
+export function buildTicketSettingsSelector(guildId, guild) {
+  const settings = getGuildSettings(guildId);
+  const currentRoleId = settings.ticket_alert_role_id;
+
+  let currentAlertText = '🚫 **Disabled** (No role or staff tagged automatically)';
+  if (currentRoleId && currentRoleId !== 'disabled' && currentRoleId !== 'none') {
+    currentAlertText = `🔔 **Active Auto-Tag Role:** <@&${currentRoleId}> (\`${currentRoleId}\`)`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x06d6a0)
+    .setTitle('🎫 Support Ticket Auto-Tag Settings')
+    .setDescription(
+      `Configure which role is automatically mentioned/tagged when a member opens a new support ticket.\n\n` +
+      `**Current Status:**\n${currentAlertText}\n\n` +
+      `**How it works:**\n` +
+      `1️⃣ **Select Role Below:** Pick a support or staff role (e.g. \`@Support\`, \`@Moderator\`, \`@Admin\`). When a member opens a ticket, that role will be automatically tagged in the ticket channel so your team gets notified immediately.\n` +
+      `2️⃣ **Disable Auto-Tag:** Turn off automatic pings completely if you prefer quiet tickets.`
+    )
+    .setFooter({ text: 'Cohesion Support Ticket Settings • Instant Sync' })
+    .setTimestamp();
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId('select_ticket_alert_role')
+    .setPlaceholder('Choose a Staff / Support Role to auto-tag on new tickets...');
+
+  const row1 = new ActionRowBuilder().addComponents(roleSelect);
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('btn_ticket_alert_disable')
+      .setLabel('Disable Auto-Tag')
+      .setEmoji('🚫')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('admin_back_main')
+      .setLabel('Back to Control Center')
+      .setEmoji('🔙')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [row1, row2], ephemeral: true };
+}
+

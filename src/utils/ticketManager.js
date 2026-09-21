@@ -10,6 +10,7 @@ import {
   PermissionFlagsBits,
   AttachmentBuilder,
 } from 'discord.js';
+import { getGuildSettings } from './guildSettings.js';
 
 // Cache of active open tickets: `${guildId}:${userId}` => channelId
 const activeTickets = new Map();
@@ -160,8 +161,15 @@ export async function createTicketChannel(guild, user, { subject, description })
       .setStyle(ButtonStyle.Secondary)
   );
 
+  const settings = getGuildSettings(guild.id);
+  const alertRoleId = settings.ticket_alert_role_id;
+  let alertPing = '';
+  if (alertRoleId && alertRoleId !== 'disabled' && alertRoleId !== 'none') {
+    alertPing = `<@&${alertRoleId}> `;
+  }
+
   await ticketChannel.send({
-    content: `👋 Welcome <@${user.id}>! Staff has been notified of your support request.`,
+    content: `${alertPing}👋 Welcome <@${user.id}>! Staff has been notified of your support request.`.trim(),
     embeds: [embed],
     components: [row],
   });
@@ -239,6 +247,11 @@ export async function closeTicket(channel, closedByUser) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
+      .setCustomId(`ticket_reopen_${channel.id}`)
+      .setLabel('Reopen Ticket (Staff Only)')
+      .setEmoji('🔓')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
       .setCustomId(`ticket_transcript_${channel.id}`)
       .setLabel('Download Transcript')
       .setEmoji('📄')
@@ -253,3 +266,62 @@ export async function closeTicket(channel, closedByUser) {
   const files = transcript ? [transcript] : [];
   await channel.send({ embeds: [closedEmbed], components: [row], files });
 }
+
+/**
+ * Reopens a closed ticket channel, restoring member permissions and tagging the requester.
+ * @param {import('discord.js').TextChannel} channel 
+ * @param {import('discord.js').User} reopenedByUser 
+ */
+export async function reopenTicket(channel, reopenedByUser) {
+  // Find creator ID from topic
+  const topicMatch = channel.topic?.match(/\((\d{17,20})\)/);
+  const creatorId = topicMatch ? topicMatch[1] : null;
+
+  if (creatorId) {
+    activeTickets.set(`${channel.guild.id}:${creatorId}`, channel.id);
+    // Restore creator typing permissions
+    await channel.permissionOverwrites.edit(creatorId, {
+      ViewChannel: true,
+      SendMessages: true,
+      AttachFiles: true,
+      EmbedLinks: true,
+      ReadMessageHistory: true,
+    }).catch(() => null);
+  }
+
+  const reopenEmbed = new EmbedBuilder()
+    .setColor(0x06d6a0)
+    .setTitle('🔓 Ticket Reopened')
+    .setDescription(
+      `This support ticket has been reopened by <@${reopenedByUser.id}>.\n\n` +
+      (creatorId
+        ? `👋 <@${creatorId}>, your support ticket has been reopened by staff! You can now send messages and continue the conversation.`
+        : `Channel permissions have been restored.`)
+    )
+    .setFooter({ text: 'Cohesion Support Ticket System' })
+    .setTimestamp();
+
+  const activeRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ticket_close_${channel.id}`)
+      .setLabel('Close Ticket (Staff Only)')
+      .setEmoji('🔒')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`ticket_transcript_${channel.id}`)
+      .setLabel('Save Transcript')
+      .setEmoji('📄')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const tagMessage = creatorId ? `🔔 <@${creatorId}> Your ticket has been reopened by staff!` : '🔔 Ticket Reopened!';
+
+  await channel.send({
+    content: tagMessage,
+    embeds: [reopenEmbed],
+    components: [activeRow],
+  });
+
+  return { success: true, creatorId };
+}
+

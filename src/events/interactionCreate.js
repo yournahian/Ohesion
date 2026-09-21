@@ -60,6 +60,8 @@ import {
   buildCustomModulesSelector,
   setLevelUpChannel,
   buildLevelChannelPayload,
+  buildTicketSettingsSelector,
+  setTicketAlertRole,
   PRESET_CONFIGS,
   DEFAULT_MODULES,
 } from '../utils/guildSettings.js';
@@ -67,6 +69,7 @@ import {
   buildTicketModal,
   createTicketChannel,
   closeTicket,
+  reopenTicket,
   generateTicketTranscript,
 } from '../utils/ticketManager.js';
 import {
@@ -1979,6 +1982,40 @@ export default {
         await interaction.deferReply({ ephemeral: false });
         await closeTicket(interaction.channel, interaction.user);
         return interaction.editReply({ content: '🔒 **Ticket has been closed and archived.**' });
+      }
+
+      // --- TICKET CONTROLS: REOPEN TICKET ---
+      if (customId.startsWith('ticket_reopen_')) {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ **Access Denied:** Only server staff or Administrators can reopen support tickets.',
+            ephemeral: true,
+          });
+        }
+        await interaction.deferReply({ ephemeral: false });
+        await reopenTicket(interaction.channel, interaction.user);
+        return interaction.editReply({ content: '🔓 **Ticket has been successfully reopened!**' });
+      }
+
+      // --- TICKET SETTINGS: CONFIGURE AUTO-TAG ROLE ---
+      if (customId === 'btn_ticket_alert_config' || customId === 'admin_ticket_settings') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({
+            content: '⛔ You need `Manage Server` or `Administrator` permissions.',
+            ephemeral: true,
+          });
+        }
+        const payload = buildTicketSettingsSelector(guildId, interaction.guild);
+        return interaction.reply(payload);
+      }
+
+      if (customId === 'btn_ticket_alert_disable') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Unauthorized.', ephemeral: true });
+        }
+        setTicketAlertRole(guildId, 'disabled');
+        await interaction.deferUpdate();
+        return interaction.editReply(buildTicketSettingsSelector(guildId, interaction.guild));
       }
 
       // --- TICKET CONTROLS: DOWNLOAD TRANSCRIPT ---
@@ -7532,6 +7569,36 @@ export default {
         const selectedChannelId = interaction.values[0];
         await interaction.deferUpdate();
         return interaction.editReply(buildChannelRulesDashboard(interaction.guild, guildId, selectedChannelId));
+      }
+
+      // --- CHANNEL SELECT: LEVEL-UP CHANNEL ---
+      if (selectId === 'select_level_up_channel') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        }
+        const selectedChannelId = interaction.values[0];
+        setLevelUpChannel(guildId, selectedChannelId);
+        await interaction.deferUpdate();
+        return interaction.editReply(buildLevelChannelPayload(guildId, interaction.guild));
+      }
+    }
+
+    // ==========================================
+    // 6. HANDLE ROLE SELECT MENUS
+    // ==========================================
+    if (interaction.isRoleSelectMenu()) {
+      const selectId = interaction.customId;
+      const guildId = interaction.guildId;
+
+      // --- ROLE SELECT: TICKET ALERT / AUTO-TAG ROLE ---
+      if (selectId === 'select_ticket_alert_role') {
+        if (!isAuthorizedAdmin(interaction)) {
+          return interaction.reply({ content: '⛔ Admin required.', ephemeral: true });
+        }
+        const selectedRoleId = interaction.values[0];
+        setTicketAlertRole(guildId, selectedRoleId);
+        await interaction.deferUpdate();
+        return interaction.editReply(buildTicketSettingsSelector(guildId, interaction.guild));
       }
     }
   },
