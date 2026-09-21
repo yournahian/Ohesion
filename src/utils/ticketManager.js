@@ -120,6 +120,23 @@ export async function createTicketChannel(guild, user, { subject, description })
     });
   }
 
+  // Allow admin's chosen staff/alert roles to view and manage tickets
+  const initialSettings = getGuildSettings(guild.id);
+  const staffRoleIds = initialSettings.ticket_alert_role_ids || (initialSettings.ticket_alert_role_id ? [initialSettings.ticket_alert_role_id] : []);
+  const validStaffRoles = staffRoleIds.filter(id => id && id !== 'disabled' && id !== 'none');
+  for (const rId of validStaffRoles) {
+    permissionOverwrites.push({
+      id: rId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.EmbedLinks,
+      ],
+    });
+  }
+
   // 3. Create the Channel
   const ticketChannel = await guild.channels.create({
     name: channelName,
@@ -228,9 +245,22 @@ export async function closeTicket(channel, closedByUser, interaction = null) {
 
   if (creatorId) {
     activeTickets.delete(`${channel.guild.id}:${creatorId}`);
-    // Lock creator from sending messages
+    // Completely hide the channel from the ticket creator (user who opened it)
     await channel.permissionOverwrites.edit(creatorId, {
+      ViewChannel: false,
       SendMessages: false,
+    }).catch(() => null);
+  }
+
+  // Ensure admin's chosen staff roles explicitly retain view access
+  const settings = getGuildSettings(channel.guild.id);
+  const staffRoleIds = settings.ticket_alert_role_ids || (settings.ticket_alert_role_id ? [settings.ticket_alert_role_id] : []);
+  const validStaffRoles = staffRoleIds.filter(id => id && id !== 'disabled' && id !== 'none');
+  for (const rId of validStaffRoles) {
+    await channel.permissionOverwrites.edit(rId, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
     }).catch(() => null);
   }
 
