@@ -1,4 +1,4 @@
--- Questify Chaos Clash Battle Royale Schema Extension
+-- Ohesion Chaos Clash Battle Royale Schema Extension
 -- Run this in your Supabase SQL Editor to add cosmetic variables to the users table.
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS battle_name_color TEXT DEFAULT NULL;

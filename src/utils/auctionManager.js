@@ -265,7 +265,7 @@ export async function concludeAuction(auctionId, client) {
           const logChannel = guild.channels.cache.find(
             c =>
               (c.name === 'cohesion-logs' ||
-                c.name === 'questify-logs' ||
+                c.name === 'ohesion-logs' ||
                 c.name === 'admin-logs' ||
                 c.name === 'logs' ||
                 c.name === 'mod-logs') &&

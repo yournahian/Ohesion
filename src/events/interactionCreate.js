@@ -7108,7 +7108,7 @@ export default {
           const logChannel = interaction.guild.channels.cache.find(
             c =>
               (c.name === 'cohesion-logs' ||
-                c.name === 'questify-logs' ||
+                c.name === 'ohesion-logs' ||
                 c.name === 'admin-logs' ||
                 c.name === 'mod-logs' ||
                 c.name === 'logs') &&

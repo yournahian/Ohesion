@@ -1,7 +1,7 @@
 {
-  "name": "questify",
-  "version": "1.0.0",
-  "description": "Questify - Community Engagement & Gamification Bot",
+  "name": "ohesion",
+  "version": "2.0.0",
+  "description": "Ohesion - Community Engagement & Gamification Bot",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

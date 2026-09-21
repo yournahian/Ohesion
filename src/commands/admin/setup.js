@@ -60,7 +60,7 @@ export default {
     try {
       // 1. Check or create "COHESION ECOSYSTEM" category
       let category = guild.channels.cache.find(
-        (c) => c.type === ChannelType.GuildCategory && (c.name.toLowerCase().includes('cohesion') || c.name.toLowerCase() === 'questify')
+        (c) => c.type === ChannelType.GuildCategory && (c.name.toLowerCase().includes('cohesion') || c.name.toLowerCase().includes('ohesion'))
       );
 
       if (!category) {
@@ -72,7 +72,7 @@ export default {
 
       // 2. Check or create #cohesion-hub channel
       let hubChannel = guild.channels.cache.find(
-        (c) => (c.name === 'cohesion-hub' || c.name === 'questify-hub') && c.parentId === category.id
+        (c) => (c.name === 'cohesion-hub' || c.name === 'ohesion-hub') && c.parentId === category.id
       );
 
       if (!hubChannel) {

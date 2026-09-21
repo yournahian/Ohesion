@@ -33,7 +33,7 @@ const activeMatches = new Map();
 // Secondary index: matchId => match object
 const matchIndex = new Map();
 
-// Battle Shield Crest Icon (Questify Official Crest on Discord CDN)
+// Battle Shield Crest Icon (Ohesion Official Crest on Discord CDN)
 const BATTLE_CREST_ICON = 'https://cdn.discordapp.com/avatars/1550544108349554799/a76ff58ee944bf6698b981df4bf05a03.png?size=512';
 
 /**
