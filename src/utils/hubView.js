@@ -289,3 +289,49 @@ export async function buildHubPayload(guild, user, member = null) {
     components,
   };
 }
+
+/**
+ * Builds the public Server Community Portal card for #cohesion-hub.
+ * Displays an elegant server welcome message with a single interactive button:
+ * [ 🔄 View My Profile / Hub ]
+ * When clicked, it opens the user's complete personal dashboard ephemerally.
+ */
+export function buildPublicPortalPayload(guild) {
+  const thumbURL = typeof guild?.iconURL === 'function' ? guild.iconURL({ dynamic: true }) : null;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`⚡ ${guild?.name || 'Community'} • Ecosystem Portal`)
+    .setDescription(
+      `Welcome to **${guild?.name || 'our server'}**!\n\n` +
+      `Click the button below to open your **personal interactive hub** to:\n\n` +
+      `• 🎖️ Check your Rank, Level progress, and Total XP\n` +
+      `• 🪙 View your Cohesion Points (CP) & claim daily rewards\n` +
+      `• 👛 Connect your multi-chain Web3 wallet & Twitter/X account\n` +
+      `• 🏆 Check real-time community leaderboards, enter raffles & auctions\n` +
+      `• 🎫 Open private support tickets with staff\n\n` +
+      `*Your dashboard is private and interactive — click below to begin!*`
+    );
+
+  if (thumbURL) {
+    embed.setThumbnail(thumbURL);
+  }
+
+  embed
+    .setFooter({ text: 'Cohesion Community Hub • Click below to access' })
+    .setTimestamp();
+
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('hub_open_personal')
+      .setLabel('View My Profile / Hub')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  return {
+    embeds: [embed],
+    components: [actionRow],
+  };
+}
+

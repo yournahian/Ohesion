@@ -2890,6 +2890,16 @@ export default {
         });
       }
 
+      // --- PUBLIC HUB: OPEN PERSONAL PROFILE EPHEMERALLY ---
+      if (customId === 'hub_open_personal') {
+        await interaction.deferReply({ ephemeral: true });
+        const guild =
+          interaction.guild ||
+          (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
+        const payload = await buildHubPayload(guild, interaction.user, interaction.member);
+        return interaction.editReply(payload);
+      }
+
       // --- D. MEMBER HUB: REFRESH STATS ---
       if (customId === 'hub_refresh') {
         const guild =

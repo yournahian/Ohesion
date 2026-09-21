@@ -5,7 +5,7 @@ import {
   EmbedBuilder,
 } from 'discord.js';
 import { supabase } from '../../lib/supabase.js';
-import { buildHubPayload } from '../../utils/hubView.js';
+import { buildPublicPortalPayload } from '../../utils/hubView.js';
 import { setLevelUpChannel } from '../../utils/guildSettings.js';
 
 export default {
@@ -80,13 +80,13 @@ export default {
           name: 'cohesion-hub',
           type: ChannelType.GuildText,
           parent: category.id,
-          topic: 'Click buttons below to view stats, claim daily rewards, and enter raffles.',
+          topic: 'Click button below to open your personal dashboard, claim daily rewards, and enter raffles.',
         });
-
-        // Send a persistent, clickable Hub interface right in the channel!
-        const hubPayload = await buildHubPayload(guild, interaction.user);
-        await hubChannel.send(hubPayload);
       }
+
+      // Send the clean public Community Portal interface with single [View My Profile / Hub] button
+      const hubPayload = buildPublicPortalPayload(guild);
+      await hubChannel.send(hubPayload);
 
       // 3. Check or create #cohesion-feed channel
       let questChannel = guild.channels.cache.find(
