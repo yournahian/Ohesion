@@ -1090,17 +1090,15 @@ export default {
 
         const pointsHoursInput = new TextInputBuilder()
           .setCustomId('input_points_hours')
-          .setLabel('Points & Duration (Optional Expiry)')
-          .setValue('25')
-          .setPlaceholder('e.g. 50 (No expiry) or 50, 24h or 50, 30m')
+          .setLabel('Points & Duration (Optional, Default: 25)')
+          .setPlaceholder('e.g. 50 (No expiry) or 50, 24h (Default: 25 CP)')
           .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+          .setRequired(false);
 
         const optionsInput = new TextInputBuilder()
           .setCustomId('input_options')
-          .setLabel('Show Image, Action Buttons (e.g. yes, yes)')
-          .setValue('yes, yes')
-          .setPlaceholder('e.g. yes, yes or yes, no')
+          .setLabel('Show Image, Action Buttons (Optional)')
+          .setPlaceholder('e.g. yes, yes or no buttons or hide image')
           .setStyle(TextInputStyle.Short)
           .setRequired(false);
 
