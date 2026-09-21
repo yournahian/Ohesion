@@ -115,15 +115,22 @@ export async function buildHubPayload(guild, user, member = null) {
   };
   if (iconURL) authorObj.iconURL = iconURL;
 
+  let tierTitle = 'Bronze Explorer';
+  let tierColor = 0x5865f2;
+  if (level >= 50) { tierTitle = 'Apex Legend'; tierColor = 0xe0aaff; }
+  else if (level >= 25) { tierTitle = 'Diamond Master'; tierColor = 0x4cc9f0; }
+  else if (level >= 10) { tierTitle = 'Gold Veteran'; tierColor = 0xffd166; }
+  else if (level >= 5) { tierTitle = 'Silver Pioneer'; tierColor = 0xc0c0c0; }
+
   const hubEmbed = new EmbedBuilder()
-    .setColor(0x5865f2) // Cohesion Blurple
+    .setColor(tierColor)
     .setAuthor(authorObj)
     .setTitle(`⚡ ${guild.name} • Community Ecosystem`)
     .setDescription(modeDesc);
 
   // Add fields dynamically based on enabled modules
   if (xpEnabled) {
-    hubEmbed.addFields({ name: '🎖️ Level', value: `**Level ${level}**`, inline: true });
+    hubEmbed.addFields({ name: '🎖️ Rank & Level', value: `**${tierTitle}** (Level ${level})`, inline: true });
   }
 
   if (currencyType === 'points') {
@@ -137,7 +144,7 @@ export async function buildHubPayload(guild, user, member = null) {
   if (xpEnabled) {
     hubEmbed.addFields({
       name: `📈 Level Progress (${progressPercent}%)`,
-      value: `${progressBar}\n\`${xpIntoLevel.toLocaleString()} / ${xpNeededForNext.toLocaleString()} XP to Level ${level + 1}\``,
+      value: `${progressBar}\n\`${xpIntoLevel.toLocaleString()} / ${xpNeededForNext.toLocaleString()} XP to Level ${level + 1} • Total: ${xp.toLocaleString()} XP\``,
     });
   }
 
@@ -230,11 +237,6 @@ export async function buildHubPayload(guild, user, member = null) {
       .setCustomId('hub_socials')
       .setLabel('Connect Socials')
       .setEmoji('🌐')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('hub_rank_card')
-      .setLabel('My Rank')
-      .setEmoji('🪪')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('hub_refresh')
