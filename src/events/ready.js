@@ -3,6 +3,7 @@ import { initActivePollsWatcher } from '../utils/pollManager.js';
 import { initActiveAuctionsWatcher } from '../utils/auctionManager.js';
 import { initInflationScheduler } from '../workers/inflationWorker.js';
 import { initTwitterPoller } from '../workers/tweetPoller.js';
+import { loadStatsFromSupabase } from '../utils/messageTracker.js';
 
 export default {
   name: Events.ClientReady,
@@ -12,6 +13,11 @@ export default {
     console.log(`[CONNECTED SERVERS (${client.guilds.cache.size})]:`);
     client.guilds.cache.forEach((g) => console.log(` - ${g.name} (ID: ${g.id})`));
     client.user.setActivity('Cohesion Quests & Hub 🌀', { type: ActivityType.Watching });
+
+    // Preload message stats from Supabase
+    loadStatsFromSupabase().catch((err) =>
+      console.warn('[READY MESSAGE STATS PRELOAD ERROR]:', err.message)
+    );
 
     // Initialize watchers for active polls and auctions
     initActivePollsWatcher(client).catch((err) =>

@@ -35,6 +35,30 @@ try {
   console.warn('[MESSAGE TRACKER] Could not load saved stats file:', err.message);
 }
 
+// Preload stats from Supabase cloud database
+export async function loadStatsFromSupabase() {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('guild_id, discord_id, messages_sent')
+      .gt('messages_sent', 0);
+
+    if (error || !data) return;
+
+    for (const row of data) {
+      if (row.guild_id && row.discord_id && row.messages_sent > 0) {
+        userTotalStats.set(`${row.guild_id}:${row.discord_id}`, row.messages_sent);
+      }
+    }
+    console.log(`[MESSAGE TRACKER] Preloaded ${data.length} user message counts from Supabase.`);
+  } catch (err) {
+    console.warn('[MESSAGE TRACKER] Supabase preload error:', err.message);
+  }
+}
+
+// Auto-trigger Supabase preload
+loadStatsFromSupabase().catch(() => null);
+
 let saveTimer = null;
 function scheduleSave() {
   if (saveTimer) return;
@@ -56,6 +80,16 @@ function scheduleSave() {
 }
 
 /**
+ * Checks if there is any tracked message data for a guild.
+ */
+export function hasMessageData(guildId) {
+  for (const [key, count] of userTotalStats.entries()) {
+    if (key.startsWith(`${guildId}:`) && count > 0) return true;
+  }
+  return false;
+}
+
+/**
  * Records a message event for a user in a specific channel.
  */
 export async function trackMessage(guildId, channelId, userId) {
@@ -68,7 +102,8 @@ export async function trackMessage(guildId, channelId, userId) {
   channelUserStats.set(chKey, (channelUserStats.get(chKey) || 0) + 1);
 
   const userKey = `${guildId}:${userId}`;
-  userTotalStats.set(userKey, (userTotalStats.get(userKey) || 0) + 1);
+  const newCount = (userTotalStats.get(userKey) || 0) + 1;
+  userTotalStats.set(userKey, newCount);
 
   rollingLogs.push({ guildId, channelId, userId, timestamp: now });
   if (rollingLogs.length > MAX_ROLLING_LOGS) {
@@ -77,16 +112,18 @@ export async function trackMessage(guildId, channelId, userId) {
 
   scheduleSave();
 
-  // Gracefully attempt to record to Supabase if table exists
+  // Persist directly to Supabase users.messages_sent
   try {
-    await supabase.rpc('increment_message_count', {
-      p_guild_id: guildId,
-      p_channel_id: channelId,
-      p_discord_id: userId,
-    }).catch(() => null);
-  } catch (err) {
-    // Ignore RPC error if not configured in postgres
-  }
+    await supabase
+      .from('users')
+      .update({
+        messages_sent: newCount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('guild_id', guildId)
+      .eq('discord_id', userId)
+      .catch(() => null);
+  } catch (_) {}
 }
 
 /**
@@ -193,8 +230,10 @@ export async function auditChannelMessages(channel, options = 100) {
 export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
   if (!guild) return { channelsScanned: 0, totalMessagesFound: 0 };
 
-  const textChannels = guild.channels.cache.filter(
-    (c) => c.isTextBased() && c.permissionsFor(guild.members.me)?.has(['ViewChannel', 'ReadMessageHistory'])
+  const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
+  const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const textChannels = channels.filter(
+    (c) => c && c.isTextBased() && (!me || c.permissionsFor(me)?.has(['ViewChannel', 'ReadMessageHistory']))
   );
 
   let channelsScanned = 0;
@@ -242,9 +281,22 @@ export async function syncGuildMessageHistory(guild, maxPerChannel = 1000) {
   for (const [chKey, count] of scannedChannelTotals.entries()) {
     channelUserStats.set(chKey, Math.max(channelUserStats.get(chKey) || 0, count));
   }
+
   for (const [uId, count] of scannedUserTotals.entries()) {
     const userKey = `${guild.id}:${uId}`;
-    userTotalStats.set(userKey, Math.max(userTotalStats.get(userKey) || 0, count));
+    const finalCount = Math.max(userTotalStats.get(userKey) || 0, count);
+    userTotalStats.set(userKey, finalCount);
+
+    // Save permanently to Supabase users table!
+    await supabase
+      .from('users')
+      .update({
+        messages_sent: finalCount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('guild_id', guild.id)
+      .eq('discord_id', uId)
+      .catch(() => null);
   }
 
   // Immediately persist to disk

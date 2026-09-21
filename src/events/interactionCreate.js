@@ -31,6 +31,7 @@ import {
   getUserChannelBreakdown,
   auditChannelMessages,
   syncGuildMessageHistory,
+  hasMessageData,
 } from '../utils/messageTracker.js';
 import {
   buildAutoModDashboard,
@@ -6065,6 +6066,11 @@ export default {
               });
             }
           }
+        }
+
+        // If message tracker has no data for this guild, auto-sync messages from Discord channels
+        if (!hasMessageData(guildId) && interaction.guild) {
+          await syncGuildMessageHistory(interaction.guild, 300).catch(() => null);
         }
 
         // Enrich every user with resolved real username & live message count
