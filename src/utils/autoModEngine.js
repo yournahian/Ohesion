@@ -259,29 +259,6 @@ function recordUserStrike(guildId, userId) {
   return updated;
 }
 
-export const SAFE_MEDIA_DOMAINS = [
-  'tenor.com',
-  'c.tenor.com',
-  'media.tenor.com',
-  'giphy.com',
-  'media.giphy.com',
-  'gph.is',
-  'discord.com',
-  'discordapp.com',
-  'discordapp.net',
-  'cdn.discordapp.com',
-  'media.discordapp.net',
-];
-
-export function isSafeMediaUrl(rawUrl) {
-  try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    return SAFE_MEDIA_DOMAINS.some(d => host === d || host.endsWith(`.${d}`));
-  } catch (_) {
-    return false;
-  }
-}
 
 /**
  * Inspects an incoming message for spam, links, invites, and banned words.
@@ -344,50 +321,45 @@ export async function inspectMessage(message) {
     const foundUrls = content.match(urlRegex);
 
     if (foundUrls && foundUrls.length > 0) {
-      // Allow GIFs and Discord media attachments (Tenor, Giphy, Discord CDN)
-      const nonMediaUrls = foundUrls.filter(u => !isSafeMediaUrl(u));
+      const channelId = message.channel.id;
+      const channelRules = settings.channel_link_rules || {};
+      const customRule = channelRules[channelId];
 
-      if (nonMediaUrls.length > 0) {
-        const channelId = message.channel.id;
-        const channelRules = settings.channel_link_rules || {};
-        const customRule = channelRules[channelId];
+      if (customRule) {
+        // Channel has specific custom rule
+        if (customRule.mode === 'allow_all') {
+          // Permitted: Any link allowed in this channel
+        } else if (customRule.mode === 'block_all') {
+          // Blocked: All links strictly forbidden in this channel
+          violation = {
+            type: 'unauthorized_link',
+            label: 'Unauthorized External Link / URL',
+            detail: `External links are strictly blocked in <#${channelId}>.`,
+          };
+        } else if (customRule.mode === 'whitelist') {
+          const allowedDomains = customRule.allowed_domains || [];
+          const unapprovedUrls = foundUrls.filter(u => !isUrlAllowed(u, allowedDomains));
 
-        if (customRule) {
-          // Channel has specific custom rule
-          if (customRule.mode === 'allow_all') {
-            // Permitted: Any link allowed in this channel
-          } else if (customRule.mode === 'block_all') {
-            // Blocked: All links strictly forbidden in this channel
+          if (unapprovedUrls.length > 0) {
+            const domainPreview = allowedDomains.map(d => `\`${d}\``).join(', ');
             violation = {
               type: 'unauthorized_link',
-              label: 'Unauthorized External Link / URL',
-              detail: `External links are strictly blocked in <#${channelId}>.`,
-            };
-          } else if (customRule.mode === 'whitelist') {
-            const allowedDomains = customRule.allowed_domains || [];
-            const unapprovedUrls = nonMediaUrls.filter(u => !isUrlAllowed(u, allowedDomains));
-
-            if (unapprovedUrls.length > 0) {
-              const domainPreview = allowedDomains.map(d => `\`${d}\``).join(', ');
-              violation = {
-                type: 'unauthorized_link',
-                label: 'Unapproved Link in Whitelisted Channel',
-                detail: `Only approved links (${domainPreview || 'none'}) are allowed in <#${channelId}>.`,
-              };
-            }
-          }
-        } else {
-          // Fallback to Server Default Link Policy
-          const defaultPolicy = settings.default_link_policy || 'block_all';
-          if (defaultPolicy === 'block_all') {
-            violation = {
-              type: 'unauthorized_link',
-              label: 'Unauthorized External Link / URL',
-              detail: 'Posting external links without authorization is prohibited.',
+              label: 'Unapproved Link in Whitelisted Channel',
+              detail: `Only approved links (${domainPreview || 'none'}) are allowed in <#${channelId}>.`,
             };
           }
-          // If defaultPolicy === 'allow_all', links pass through
         }
+      } else {
+        // Fallback to Server Default Link Policy
+        const defaultPolicy = settings.default_link_policy || 'block_all';
+        if (defaultPolicy === 'block_all') {
+          violation = {
+            type: 'unauthorized_link',
+            label: 'Unauthorized External Link / URL',
+            detail: 'Posting external links without authorization is prohibited.',
+          };
+        }
+        // If defaultPolicy === 'allow_all', links pass through
       }
     }
   }
