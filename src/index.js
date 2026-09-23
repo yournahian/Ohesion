@@ -1,12 +1,18 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import dns from 'node:dns';
 import { fileURLToPath } from 'node:url';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { config } from './config.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 import { initTelegramBot } from './telegram/telegramBot.js';
+
+// Force Node.js to prioritize IPv4 over IPv6 on hosting environments like Render
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,15 +117,35 @@ async function main() {
   });
 
   // Connect to Discord
-  if (!config.discordToken) {
-    console.error('CRITICAL: DISCORD_TOKEN is not defined in .env. Please set it before starting.');
+  const rawToken = config.discordToken || '';
+  const cleanToken = rawToken.trim().replace(/^["']|["']$/g, '');
+
+  if (!cleanToken) {
+    console.error('CRITICAL: DISCORD_TOKEN is not defined in .env or Render environment. Please set it before starting.');
     process.exit(1);
   }
 
+  // Shard & Gateway connectivity monitoring
+  client.on('shardReady', (shardId) => {
+    console.log(`[GATEWAY] Shard ${shardId} connected & ready!`);
+  });
+  client.on('shardError', (error, shardId) => {
+    console.error(`[GATEWAY ERROR] Shard ${shardId} error:`, error);
+  });
+  client.on('shardDisconnect', (event, shardId) => {
+    console.warn(`[GATEWAY DISCONNECT] Shard ${shardId} disconnected:`, event);
+  });
+  client.on('shardReconnecting', (shardId) => {
+    console.log(`[GATEWAY] Shard ${shardId} reconnecting...`);
+  });
+  client.on('error', (err) => {
+    console.error('[CLIENT ERROR]:', err);
+  });
+
   try {
-    console.log('[LOGIN] Connecting to Discord Gateway...');
-    await client.login(config.discordToken);
-    console.log('[LOGIN] Discord Gateway connection established successfully.');
+    console.log(`[LOGIN] Connecting to Discord Gateway (Token Length: ${cleanToken.length}, Prefix: ${cleanToken.substring(0, 10)}...)...`);
+    await client.login(cleanToken);
+    console.log(`[LOGIN] Gateway handshake succeeded! Logged in as: ${client.user?.tag || 'Discord Client'}`);
   } catch (loginErr) {
     console.error('[CRITICAL LOGIN ERROR]: Failed to login to Discord:', loginErr);
   }
