@@ -20,9 +20,62 @@ const __dirname = path.dirname(__filename);
 // HTTP server for Render health checks and large recording downloads (>25MB)
 const PORT = process.env.PORT || 3000;
 http
-  .createServer((req, res) => {
+  .createServer(async (req, res) => {
     try {
       const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+      // Diagnostic endpoint to check Discord API & network connectivity directly from Render
+      if (parsedUrl.pathname === '/diagnose') {
+        const results = {
+          timestamp: new Date().toISOString(),
+          nodeVersion: process.version,
+          clientReady: client.isReady(),
+          botTag: client.user?.tag || null,
+          guildsCount: client.guilds?.cache?.size || 0,
+        };
+
+        // 1. DNS lookups
+        try {
+          results.dnsDiscord = await dns.promises.lookup('discord.com', { all: true });
+        } catch (e) {
+          results.dnsDiscordError = e.message;
+        }
+
+        try {
+          results.dnsGateway = await dns.promises.lookup('gateway.discord.gg', { all: true });
+        } catch (e) {
+          results.dnsGatewayError = e.message;
+        }
+
+        // 2. Outbound Public IP
+        try {
+          const ipRes = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+          results.publicIp = await ipRes.json();
+        } catch (e) {
+          results.publicIpError = e.message;
+        }
+
+        // 3. Direct Discord REST API check (gateway/bot)
+        try {
+          const start = Date.now();
+          const cleanTok = (config.discordToken || '').trim().replace(/^["']|["']$/g, '');
+          const restRes = await fetch('https://discord.com/api/v10/gateway/bot', {
+            headers: { Authorization: `Bot ${cleanTok}` },
+            signal: AbortSignal.timeout(8000),
+          });
+          results.discordRest = {
+            status: restRes.status,
+            statusText: restRes.statusText,
+            timeMs: Date.now() - start,
+            data: await restRes.json().catch(() => null),
+          };
+        } catch (e) {
+          results.discordRestError = e.message;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify(results, null, 2));
+      }
 
       // Serve recording downloads: /download/:sessionId/:filename
       if (parsedUrl.pathname.startsWith('/download/')) {
