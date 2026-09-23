@@ -8,6 +8,8 @@ import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 import { initTelegramBot } from './telegram/telegramBot.js';
 
+import { startKeepAlive } from './utils/keepAlive.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,6 +78,8 @@ http
   })
   .listen(PORT, () => {
     console.log(`[HEALTH] Health check & Download server listening on port ${PORT}`);
+    // Start self-pinging keep-alive worker to prevent Render sleep
+    startKeepAlive();
   });
 
 // Initialize Discord Client with required Intents
@@ -126,12 +130,20 @@ async function main() {
   }
 }
 
-// Global process safety handlers to prevent crashes from network blips
+// Global process safety handlers to prevent crashes from network blips or cold start timeouts
 process.on('unhandledRejection', (error) => {
+  if (error?.code === 10062 || error?.rawError?.code === 10062 || error?.code === 40060) {
+    console.warn(`[DISCORD 10062/40060 SUPPRESSED]: Interaction expired or already acknowledged.`);
+    return;
+  }
   console.error('[UNHANDLED REJECTION]:', error);
 });
 
 process.on('uncaughtException', (error) => {
+  if (error?.code === 10062 || error?.rawError?.code === 10062 || error?.code === 40060) {
+    console.warn(`[DISCORD 10062/40060 SUPPRESSED]: Interaction expired or already acknowledged.`);
+    return;
+  }
   console.error('[UNCAUGHT EXCEPTION]:', error);
 });
 

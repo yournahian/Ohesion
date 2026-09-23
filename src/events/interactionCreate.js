@@ -519,25 +519,30 @@ function processSnippetRequirements(customText, guild, tweetUsername) {
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
-    // ==========================================
-    // 1. HANDLE SLASH COMMANDS
-    // ==========================================
-    if (interaction.isChatInputCommand()) {
-      const command = client.commands.get(interaction.commandName);
+    try {
+      // ==========================================
+      // 1. HANDLE SLASH COMMANDS
+      // ==========================================
+      if (interaction.isChatInputCommand()) {
+        const command = client.commands.get(interaction.commandName);
 
-      if (!command) {
-        console.error(`No command matching ${interaction.commandName} was found.`);
-        return;
-      }
+        if (!command) {
+          console.error(`No command matching ${interaction.commandName} was found.`);
+          return;
+        }
 
-      try {
-        await command.execute(interaction);
-      } catch (error) {
-        console.error(`Error executing ${interaction.commandName}:`, error);
-        const replyOptions = {
-          content: 'There was an error while executing this command!',
-          ephemeral: true,
-        };
+        try {
+          await command.execute(interaction);
+        } catch (error) {
+          if (error?.code === 10062 || error?.rawError?.code === 10062) {
+            console.warn(`[INTERACTION TIMEOUT 10062]: Command /${interaction.commandName} timed out (>3s). Discord token expired.`);
+            return;
+          }
+          console.error(`Error executing ${interaction.commandName}:`, error);
+          const replyOptions = {
+            content: 'There was an error while executing this command!',
+            ephemeral: true,
+          };
 
         try {
           if (interaction.replied || interaction.deferred) {
@@ -3072,12 +3077,17 @@ export default {
 
       // --- PUBLIC HUB: OPEN PERSONAL PROFILE EPHEMERALLY ---
       if (customId === 'hub_open_personal') {
-        await interaction.deferReply({ ephemeral: true });
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (err) {
+          if (err.code === 10062 || err.rawError?.code === 10062) return;
+          throw err;
+        }
         const guild =
           interaction.guild ||
           (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
         const payload = await buildHubPayload(guild, interaction.user, interaction.member);
-        return interaction.editReply(payload);
+        return interaction.editReply(payload).catch(() => null);
       }
 
       // --- D. MEMBER HUB: REFRESH STATS ---
@@ -7603,6 +7613,24 @@ export default {
         await interaction.deferUpdate();
         return interaction.editReply(buildTicketSettingsSelector(guildId, interaction.guild));
       }
+    }
+    } catch (globalInteractionErr) {
+      if (
+        globalInteractionErr?.code === 10062 ||
+        globalInteractionErr?.rawError?.code === 10062
+      ) {
+        console.warn(
+          `[INTERACTION TIMEOUT 10062]: Interaction (${interaction.commandName || interaction.customId || 'unknown'}) timed out before acknowledgment (>3s).`
+        );
+        return;
+      }
+      if (
+        globalInteractionErr?.code === 40060 ||
+        globalInteractionErr?.rawError?.code === 40060
+      ) {
+        return;
+      }
+      console.error(`[INTERACTION EXECUTION ERROR]:`, globalInteractionErr);
     }
   },
 };
