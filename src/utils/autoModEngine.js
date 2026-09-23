@@ -259,7 +259,6 @@ function recordUserStrike(guildId, userId) {
   return updated;
 }
 
-
 /**
  * Inspects an incoming message for spam, links, invites, and banned words.
  * Enforces automatic deletion, strikes, warnings, timeouts, and bans.

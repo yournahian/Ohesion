@@ -211,24 +211,17 @@ export default {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    try {
-      await interaction.deferReply({ ephemeral: true });
-    } catch (err) {
-      if (err.code === 10062 || err.rawError?.code === 10062) {
-        console.warn(`[ADMIN TIMEOUT 10062]: Interaction timed out (>3s). Discord token expired.`);
-        return;
-      }
-      throw err;
+    if (
+      !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild) &&
+      !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)
+    ) {
+      return interaction.reply({
+        content: '⛔ You need `Manage Server` permissions to access the Cohesion Admin Control Center.',
+        ephemeral: true,
+      });
     }
 
-    if (
-      !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) &&
-      !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-    ) {
-      return interaction.editReply({
-        content: '⛔ You need `Manage Server` permissions to access the Cohesion Admin Control Center.',
-      }).catch(() => null);
-    }
+    await interaction.deferReply({ ephemeral: true });
 
     const guildId = interaction.guildId;
     const guild =
@@ -238,10 +231,10 @@ export default {
     if (!guild) {
       return interaction.editReply({
         content: `⚠️ Cohesion is not added to this server as a bot. Please invite Cohesion to this server with Administrator permissions.`,
-      }).catch(() => null);
+      });
     }
 
     const payload = await getAdminPanelPayload(guild);
-    return interaction.editReply(payload).catch(() => null);
+    return interaction.editReply(payload);
   },
 };
