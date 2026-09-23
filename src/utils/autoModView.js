@@ -94,7 +94,15 @@ export function buildAutoModDashboard(guildId, guildName) {
       .setStyle(ButtonStyle.Danger)
   );
 
-  return { embeds: [embed], components: [toggleRow, actionRow], ephemeral: true };
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('admin_back_main')
+      .setLabel('Back to Admin Control Deck')
+      .setEmoji('🔙')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [toggleRow, actionRow, navRow], ephemeral: true };
 }
 
 /**

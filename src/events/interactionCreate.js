@@ -1933,14 +1933,15 @@ export default {
       }
 
       // --- NAVIGATION: BACK TO MAIN ADMIN PANEL ---
-      if (customId === 'admin_back_to_main') {
+      if (customId === 'admin_back_to_main' || customId === 'admin_back_main') {
         if (!isAuthorizedAdmin(interaction)) return;
         const guild = interaction.guild || (guildId ? await interaction.client.guilds.fetch(guildId).catch(() => null) : null);
         if (!guild) {
           return interaction.reply({ content: 'Server not found.', ephemeral: true });
         }
+        await interaction.deferUpdate().catch(() => null);
         const payload = await getAdminPanelPayload(guild);
-        return interaction.update(payload);
+        return interaction.editReply(payload).catch(() => null);
       }
 
       // --- HUB UI: OPEN ADMIN PANEL (ZERO SLASH COMMAND) ---
@@ -2703,13 +2704,9 @@ export default {
             ephemeral: true,
           });
         }
+        await interaction.deferUpdate().catch(() => null);
         const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
-        if (customId === 'automod_back_to_main') {
-          await interaction.deferUpdate();
-          return interaction.editReply(payload);
-        } else {
-          return interaction.reply(payload);
-        }
+        return interaction.editReply(payload).catch(() => null);
       }
 
       // --- AUTOMOD TOGGLES ---
@@ -2973,107 +2970,6 @@ export default {
         return interaction.update(payload);
       }
 
-      // --- ADMIN: AUTOMOD & SECURITY SHIELD DASHBOARD ---
-      if (customId === 'admin_automod') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions to configure AutoMod Shield.',
-            ephemeral: true,
-          });
-        }
-
-        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
-        return interaction.reply(payload);
-      }
-
-      // --- ADMIN: AUTOMOD TOGGLE ANTI-LINK ---
-      if (customId === 'automod_toggle_link') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const settings = getAutoModSettings(guildId);
-        updateAutoModSettings(guildId, { anti_link: !settings.anti_link });
-        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
-        return interaction.update(payload);
-      }
-
-      // --- ADMIN: AUTOMOD TOGGLE ANTI-INVITE ---
-      if (customId === 'automod_toggle_invite') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const settings = getAutoModSettings(guildId);
-        updateAutoModSettings(guildId, { anti_invite: !settings.anti_invite });
-        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
-        return interaction.update(payload);
-      }
-
-      // --- ADMIN: AUTOMOD TOGGLE ANTI-SPAM ---
-      if (customId === 'automod_toggle_spam') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const settings = getAutoModSettings(guildId);
-        updateAutoModSettings(guildId, { anti_spam: !settings.anti_spam });
-        const payload = buildAutoModDashboard(guildId, interaction.guild?.name);
-        return interaction.update(payload);
-      }
-
-      // --- ADMIN: AUTOMOD OPEN PUNISHMENT SELECTOR ---
-      if (customId === 'automod_btn_punishment') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const settings = getAutoModSettings(guildId);
-        const payload = buildPunishmentSelector(settings.punishment_mode);
-        return interaction.reply(payload);
-      }
-
-      // --- ADMIN: AUTOMOD OPEN BANNED WORDS MODAL ---
-      if (customId === 'automod_btn_words') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const settings = getAutoModSettings(guildId);
-        const modal = buildBannedWordsModal(settings.banned_words);
-        return interaction.showModal(modal);
-      }
-
-      // --- ADMIN: AUTOMOD RESET MEMBER STRIKES ---
-      if (customId === 'automod_btn_reset_strikes') {
-        if (!isAuthorizedAdmin(interaction)) {
-          return interaction.reply({
-            content: '⛔ You need `Administrator` or `Manage Server` permissions.',
-            ephemeral: true,
-          });
-        }
-
-        const cleared = resetGuildStrikes(guildId);
-        return interaction.reply({
-          content: `🔄 **AutoMod Strikes Reset!** Cleared active strikes across all members in this server.`,
-          ephemeral: true,
-        });
-      }
 
       // --- PUBLIC HUB: OPEN PERSONAL PROFILE EPHEMERALLY ---
       if (customId === 'hub_open_personal') {
