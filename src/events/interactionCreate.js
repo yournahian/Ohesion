@@ -524,7 +524,8 @@ export default {
       // 1. HANDLE SLASH COMMANDS
       // ==========================================
       if (interaction.isChatInputCommand()) {
-        const command = client.commands.get(interaction.commandName);
+        const clientRef = client || interaction.client;
+        const command = clientRef?.commands?.get(interaction.commandName);
 
         if (!command) {
           console.error(`No command matching ${interaction.commandName} was found.`);

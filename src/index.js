@@ -1,3 +1,7 @@
+import dns from 'node:dns';
+// Force IPv4 resolution first to prevent Render IPv6 connection hangs with Discord Gateway
+dns.setDefaultResultOrder('ipv4first');
+
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -109,10 +113,17 @@ async function main() {
   const eventsPath = path.join(__dirname, 'events');
   await loadEvents(client, eventsPath);
 
-  // Guild join listener
+// Guild join listener
   client.on('guildCreate', (guild) => {
     console.log(`[NEW SERVER JOINED] ${guild.name} (ID: ${guild.id}) - Members: ${guild.memberCount}`);
   });
+
+  // Discord Gateway connection lifecycle monitoring
+  client.on('error', (err) => console.error('[DISCORD CLIENT ERROR]:', err));
+  client.on('shardError', (err) => console.error('[DISCORD SHARD ERROR]:', err));
+  client.on('shardDisconnect', (event) => console.warn('[DISCORD SHARD DISCONNECT]:', event));
+  client.on('shardReconnecting', () => console.log('[DISCORD SHARD RECONNECTING]...'));
+  client.on('shardResume', () => console.log('[DISCORD SHARD RESUMED]'));
 
   // Connect to Discord
   if (!config.discordToken) {
@@ -120,7 +131,9 @@ async function main() {
     process.exit(1);
   }
 
+  console.log('[DISCORD] Connecting to Discord Gateway via IPv4...');
   await client.login(config.discordToken);
+  console.log(`[DISCORD] Successfully authenticated! Logged in as ${client.user?.tag || 'Cohesion'}`);
 
   // Initialize and start Telegram Bot concurrently
   try {
