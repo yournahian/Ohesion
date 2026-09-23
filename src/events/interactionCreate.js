@@ -519,6 +519,8 @@ function processSnippetRequirements(customText, guild, tweetUsername) {
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
+    console.log(`[EVENT INTERACTION] Received: ${interaction.isChatInputCommand() ? '/' + interaction.commandName : interaction.customId || interaction.type} by ${interaction.user?.tag || interaction.user?.id} in guild ${interaction.guildId}`);
+
     // ==========================================
     // 1. HANDLE SLASH COMMANDS
     // ==========================================
