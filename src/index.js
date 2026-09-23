@@ -116,7 +116,13 @@ async function main() {
     process.exit(1);
   }
 
-  await client.login(config.discordToken);
+  try {
+    console.log('[LOGIN] Connecting to Discord Gateway...');
+    await client.login(config.discordToken);
+    console.log('[LOGIN] Discord Gateway connection established successfully.');
+  } catch (loginErr) {
+    console.error('[CRITICAL LOGIN ERROR]: Failed to login to Discord:', loginErr);
+  }
 
   // Initialize and start Telegram Bot concurrently
   try {
